@@ -26,12 +26,16 @@ jobs:
 
       - name: Build Rust Binary
         run: |
+          # 1. 正常编译
           cargo build --release --target aarch64-unknown-linux-musl
-          mv target/aarch64-unknown-linux-musl/release/dns-report dns-report-arm64
+          
+          # 2. 核心：把默认的 dns-report 重命名为 AdguardHomeReport
+          mv target/aarch64-unknown-linux-musl/release/dns-report AdguardHomeReport
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: 编译产物 v1.0.${{ github.run_number }}
-          files: dns-report-arm64
+          # 3. 上传重命名后的文件
+          files: AdguardHomeReport
