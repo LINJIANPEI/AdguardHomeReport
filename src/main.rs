@@ -45,37 +45,38 @@ async fn serve_index() -> Html<&'static str> {
     Html(INDEX_HTML)
 }
 
-// 核心：穷尽一切办法获取手机真实的局域网 IP
+// 获取手机真实的局域网 IP (避开 Clash 等虚拟网卡)
 fn get_real_lan_ip() -> String {
-    // 1. 尝试执行 ip addr show wlan0 获取 Wi-Fi 网卡 IP
+    // 1. 优先使用 ip route get 来获取默认路由的源 IP
+    if let Ok(output) = Command::new("ip").args(&["route", "get", "223.5.5.5"]).output() {
+        let s = String::from_utf8_lossy(&output.stdout);
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        for i in 0..parts.len() {
+            if parts[i] == "src" && i + 1 < parts.len() {
+                let ip = parts[i + 1];
+                // 排除常见的 VPN 或 Docker 虚拟 IP 段
+                if !ip.starts_with("198.18") && !ip.starts_with("198.19") && !ip.starts_with("10.") && ip.contains('.') {
+                    return ip.to_string();
+                }
+            }
+        }
+    }
+
+    // 2. 如果 ip route 失败，尝试直接通过 wlan0 读取
     if let Ok(output) = Command::new("ip").args(&["addr", "show", "wlan0"]).output() {
         let s = String::from_utf8_lossy(&output.stdout);
         for line in s.lines() {
             let line = line.trim();
             if line.starts_with("inet ") {
                 let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() > 1 {
-                    let ip = parts[1];
-                    if ip.contains('.') { // 过滤掉 IPv6 的地址
-                        return ip.to_string();
-                    }
+                if parts.len() > 1 && parts[1].contains('.') {
+                    return parts[1].to_string();
                 }
             }
         }
     }
 
-    // 2. 如果 wlan0 获取失败，尝试通过路由表寻找真实的出口 src IP
-    if let Ok(output) = Command::new("ip").args(&["route", "get", "223.5.5.5"]).output() {
-        let s = String::from_utf8_lossy(&output.stdout);
-        let parts: Vec<&str> = s.split_whitespace().collect();
-        for i in 0..parts.len() {
-            if parts[i] == "src" && i + 1 < parts.len() {
-                return parts[i + 1].to_string();
-            }
-        }
-    }
-
-    // 3. 最后的兜底：UDP 探测（排除 Clash 等虚拟网卡）
+    // 3. 最后的兜底：UDP 探测
     if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
         if socket.connect("223.5.5.5:80").is_ok() {
             if let Ok(addr) = socket.local_addr() {
@@ -90,19 +91,17 @@ fn get_real_lan_ip() -> String {
     "未知".to_string()
 }
 
-// 返回给前端展示的 IP
 async fn get_client_ip(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> String {
     let ip = addr.ip().to_string();
     let clean_ip = ip.strip_prefix("::ffff:").unwrap_or(&ip).to_string();
     
-    // 如果是手机本机访问，直接返回真实的 Wi-Fi IP
+    // 如果是本机访问，强行返回真实局域网 IP
     if clean_ip == "127.0.0.1" || clean_ip == "::1" {
-        let true_ip = get_real_lan_ip();
-        if true_ip != "未知" {
-            return true_ip;
+        let real_ip = get_real_lan_ip();
+        if real_ip != "未知" {
+            return real_ip;
         }
     }
-    // 如果是电脑等其他设备访问，直接返回它们真实的局域网 IP
     clean_ip
 }
 
@@ -114,13 +113,12 @@ async fn proxy_api(
     let ip = addr.ip().to_string();
     let client_ip = ip.strip_prefix("::ffff:").unwrap_or(&ip).to_string();
 
-    // 核心逻辑：查日志时用什么 IP
     if path == "querylog" {
         if client_ip == "127.0.0.1" || client_ip == "::1" {
-            // 手机自己查自己，AdGuard 日志里必须是 127.0.0.1
+            // 本机查询日志，强制用 127.0.0.1 才能查到数据
             query.insert("search".to_string(), "127.0.0.1".to_string());
         } else {
-            // 局域网其他设备查自己，日志里是它们的局域网 IP
+            // 其他设备查询
             query.insert("search".to_string(), client_ip);
         }
     }
