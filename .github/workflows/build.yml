@@ -1,60 +1,36 @@
-name: Build Binary
+name: Build Rust Binary for Android
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Rust Toolchain
+      - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-musl
 
-      - name: Cache and Install Toolchain
-        uses: awalsh128/cache-apt-pkgs-action@latest
-        with:
-          packages: gcc-aarch64-linux-gnu musl-tools
-          version: 1.0
-
-      - name: Cache Cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Build
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
+      - name: Install musl-tools and aarch64 gcc
         run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools gcc-aarch64-linux-gnu
+
+      - name: Build Rust Binary (Static ARM64)
+        run: |
+          # 设置交叉编译器环境变量，确保底层依赖能正确编译
+          export CC_aarch64_unknown_linux_musl=aarch64-linux-gnu-gcc
+          export AR_aarch64_unknown_linux_musl=aarch64-linux-gnu-ar
           cargo build --release --target aarch64-unknown-linux-musl
 
-      # 🔴 修改了这里的路径和文件名
-      - name: Rename Binary
-        run: |
-          mv target/aarch64-unknown-linux-musl/release/AdguardHomeReport AdguardHomeReport
-
-      # 🔴 修改了这里上传的文件名
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: v${{ github.run_number }}
-          name: Release v${{ github.run_number }}
-          draft: false
-          prerelease: false
-          make_latest: true
-          files: AdguardHomeReport
+          name: dns-report-binary
+          path: target/aarch64-unknown-linux-musl/release/dns-report
