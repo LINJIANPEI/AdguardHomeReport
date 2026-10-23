@@ -6,7 +6,9 @@ use axum::{
     Router,
 };
 use std::collections::HashMap;
+use std::io::Read;
 use std::net::{SocketAddr, UdpSocket};
+use std::process::Command;
 
 const INDEX_HTML: &str = include_str!("../web/index.html");
 const AGH_URL: &str = "http://127.0.0.1:3000";
@@ -17,7 +19,6 @@ const AGH_PASS: &str = "20131400";
 async fn main() {
     let app = Router::new()
         .route("/", get(serve_index))
-        .route("/api/local-ip", get(get_local_ip))
         .route("/api/client-ip", get(get_client_ip))
         .route("/control/*path", get(proxy_api).post(proxy_api));
 
@@ -27,7 +28,6 @@ async fn main() {
         Ok(l) => l,
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
             eprintln!("❌ 启动失败: 端口 8888 已被占用！");
-            eprintln!("👉 请先执行 'killall dns-report' 杀掉旧进程。");
             return;
         }
         Err(e) => {
@@ -36,39 +36,74 @@ async fn main() {
         }
     };
 
-    println!("✅ DNS 战报后端已启动: http://0.0.0.0:{}", 8888);
+    println!("✅ DNS 战报后端已启动: http://0.0.0.0:8888");
 
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await
-    .unwrap();
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
 }
 
 async fn serve_index() -> Html<&'static str> {
     Html(INDEX_HTML)
 }
 
-async fn get_local_ip() -> String {
-    let socket = match UdpSocket::bind("0.0.0.0:0") {
-        Ok(s) => s,
-        Err(_) => return "127.0.0.1".to_string(),
-    };
-    if socket.connect("8.8.8.8:80").is_ok() {
-        if let Ok(addr) = socket.local_addr() {
-            return addr.ip().to_string();
+// 核心：穷尽一切办法获取手机真实的局域网 IP
+fn get_real_lan_ip() -> String {
+    // 1. 尝试执行 ip addr show wlan0 获取 Wi-Fi 网卡 IP
+    if let Ok(output) = Command::new("ip").args(&["addr", "show", "wlan0"]).output() {
+        let s = String::from_utf8_lossy(&output.stdout);
+        for line in s.lines() {
+            let line = line.trim();
+            if line.starts_with("inet ") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() > 1 {
+                    let ip = parts[1];
+                    if ip.contains('.') { // 过滤掉 IPv6 的地址
+                        return ip.to_string();
+                    }
+                }
+            }
         }
     }
-    "127.0.0.1".to_string()
+
+    // 2. 如果 wlan0 获取失败，尝试通过路由表寻找真实的出口 src IP
+    if let Ok(output) = Command::new("ip").args(&["route", "get", "223.5.5.5"]).output() {
+        let s = String::from_utf8_lossy(&output.stdout);
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        for i in 0..parts.len() {
+            if parts[i] == "src" && i + 1 < parts.len() {
+                return parts[i + 1].to_string();
+            }
+        }
+    }
+
+    // 3. 最后的兜底：UDP 探测（排除 Clash 等虚拟网卡）
+    if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("223.5.5.5:80").is_ok() {
+            if let Ok(addr) = socket.local_addr() {
+                let ip = addr.ip().to_string();
+                if !ip.starts_with("198.18") && !ip.starts_with("198.19") && !ip.starts_with("10.") {
+                    return ip;
+                }
+            }
+        }
+    }
+    
+    "未知".to_string()
 }
 
+// 返回给前端展示的 IP
 async fn get_client_ip(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> String {
     let ip = addr.ip().to_string();
-    if ip.starts_with("::ffff:") {
-        return ip.replace("::ffff:", "");
+    let clean_ip = ip.strip_prefix("::ffff:").unwrap_or(&ip).to_string();
+    
+    // 如果是手机本机访问，直接返回真实的 Wi-Fi IP
+    if clean_ip == "127.0.0.1" || clean_ip == "::1" {
+        let true_ip = get_real_lan_ip();
+        if true_ip != "未知" {
+            return true_ip;
+        }
     }
-    ip
+    // 如果是电脑等其他设备访问，直接返回它们真实的局域网 IP
+    clean_ip
 }
 
 async fn proxy_api(
@@ -76,23 +111,19 @@ async fn proxy_api(
     Query(mut query): Query<HashMap<String, String>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>
 ) -> Response {
-    let client_ip = addr.ip().to_string();
-    let client_ip = client_ip.strip_prefix("::ffff:").unwrap_or(&client_ip).to_string();
+    let ip = addr.ip().to_string();
+    let client_ip = ip.strip_prefix("::ffff:").unwrap_or(&ip).to_string();
 
+    // 核心逻辑：查日志时用什么 IP
     if path == "querylog" {
-        query.insert("search".to_string(), client_ip);
+        if client_ip == "127.0.0.1" || client_ip == "::1" {
+            // 手机自己查自己，AdGuard 日志里必须是 127.0.0.1
+            query.insert("search".to_string(), "127.0.0.1".to_string());
+        } else {
+            // 局域网其他设备查自己，日志里是它们的局域网 IP
+            query.insert("search".to_string(), client_ip);
+        }
     }
-
-    let client = reqwest::Client::builder()
-        .cookie_store(true)
-        .build()
-        .unwrap();
-
-    let login_body = serde_json::json!({ "name": AGH_USER, "password": AGH_PASS });
-    let _ = client.post(format!("{}/control/login", AGH_URL))
-        .json(&login_body)
-        .send()
-        .await;
 
     let mut url = format!("{}/control/{}", AGH_URL, path);
     if !query.is_empty() {
@@ -100,18 +131,42 @@ async fn proxy_api(
         url = format!("{}?{}", url, qs.join("&"));
     }
 
-    let res = client.get(&url).send().await;
+    let result = tokio::task::spawn_blocking(move || {
+        let login_body = format!(r#"{{"name":"{}","password":"{}"}}"#, AGH_USER, AGH_PASS);
+        let login_resp = ureq::post(&format!("{}/control/login", AGH_URL))
+            .set("Content-Type", "application/json")
+            .send_string(&login_body);
 
-    match res {
-        Ok(resp) => {
-            let status = resp.status();
-            let body_bytes = resp.bytes().await.unwrap_or_default();
+        let mut cookie = String::new();
+        if let Ok(resp) = login_resp {
+            if let Some(c) = resp.header("set-cookie") {
+                if let Some(session) = c.split(';').next() {
+                    cookie = session.to_string();
+                }
+            }
+        }
+
+        let mut req = ureq::get(&url);
+        if !cookie.is_empty() {
+            req = req.set("Cookie", &cookie);
+        }
+
+        match req.call() {
+            Ok(resp) => {
+                let mut bytes = Vec::new();
+                let _ = resp.into_reader().read_to_end(&mut bytes);
+                Ok(bytes)
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    }).await.unwrap();
+
+    match result {
+        Ok(body_bytes) => {
             let mut headers = HeaderMap::new();
             headers.insert("Content-Type", "application/json".parse().unwrap());
-            (status, headers, body_bytes).into_response()
+            (StatusCode::OK, headers, body_bytes).into_response()
         }
-        Err(e) => {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Proxy error: {}", e)).into_response()
-        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Proxy error: {}", e)).into_response()
     }
 }
