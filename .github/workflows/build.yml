@@ -20,14 +20,12 @@ jobs:
         with:
           targets: aarch64-unknown-linux-musl
 
-      # 🚀 加速 1：使用缓存来安装系统依赖，避免每次重新下载
       - name: Cache and Install Toolchain
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
           packages: gcc-aarch64-linux-gnu musl-tools
           version: 1.0
 
-      # 🚀 加速 2：缓存 Cargo 的构建产物
       - name: Cache Cargo
         uses: actions/cache@v4
         with:
@@ -49,11 +47,13 @@ jobs:
         run: |
           mv target/aarch64-unknown-linux-musl/release/dns-report dns-report-arm64
 
+      # 🚀 核心修改：每次使用动态的新标签 (如 v1, v2, v3...)
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Latest Build
+          tag_name: v${{ github.run_number }}
+          name: Release v${{ github.run_number }}
           draft: false
           prerelease: false
+          make_latest: true
           files: dns-report-arm64
