@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,23 +20,40 @@ jobs:
         with:
           targets: aarch64-unknown-linux-musl
 
-      - name: Install Cross Compiler Toolchain
-        run: |
-          sudo apt-get update
-          # 安装 ARM64 的底层链接库
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-          # 安装 musl 基础支持
-          sudo apt-get install -y musl-tools
+      # 🚀 加速 1：使用缓存来安装系统依赖，避免每次重新下载
+      - name: Cache and Install Toolchain
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: gcc-aarch64-linux-gnu musl-tools
+          version: 1.0
+
+      # 🚀 加速 2：缓存 Cargo 的构建产物
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build
         env:
-          # 核心修复：告诉 Cargo 使用 ARM64 架构的 gcc 来链接，而不是默认的 x86 gcc
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
         run: |
           cargo build --release --target aarch64-unknown-linux-musl
 
-      - name: Upload
-        uses: actions/upload-artifact@v4
+      - name: Rename Binary
+        run: |
+          mv target/aarch64-unknown-linux-musl/release/dns-report dns-report-arm64
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: dns-report-binary
-          path: target/aarch64-unknown-linux-musl/release/dns-report
+          tag_name: latest
+          name: Latest Build
+          draft: false
+          prerelease: false
+          files: dns-report-arm64
