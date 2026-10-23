@@ -40,12 +40,14 @@
         .ring-fg { fill: none; stroke: url(#ringGrad); stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 1s; }
         .ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
         .ring-value { font-size: 18px; font-weight: 800; color: var(--green); }
+        
         .rate-info { text-align: left; flex: 1; }
         .rate-info-row { display: flex; justify-content: space-between; font-size: 12px; padding: 6px 0; border-top: 1px dashed rgba(148,163,184,.10); }
         .rate-info-row:first-child { border: none; }
         .rate-info-value { font-family: monospace; font-weight: 700; }
         .rate-info-value.amber { color: var(--amber); }
         .rate-info-value.green { color: var(--green); }
+        
         .stat-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .stat-card { background: rgba(15,23,42,.45); border: 1px solid var(--border); border-radius: 12px; padding: 12px; text-align: left; }
         .stat-big { font-family: monospace; font-size: 22px; font-weight: 800; margin-top: 8px; }
@@ -73,7 +75,7 @@
             <h1 id="title">正在检测…</h1>
             <p class="desc" id="desc">正在读取本地 DNS 记录</p>
             <div class="error-banner" id="errorBanner"></div>
-            
+
             <div id="content" style="display:none;">
                 <div class="section-title">拦截概览 (最近24小时)</div>
                 <div class="rate-panel">
@@ -83,7 +85,8 @@
                     </div>
                     <div class="rate-info">
                         <div class="rate-info-row"><span>解析量</span><span class="rate-info-value" id="riQueries">—</span></div>
-                        <div class="rate-info-row"><span>拦截量</span><span class="rate-info-value amber" id="riBlocked">—</span></div>
+                        <div class="rate-info-row"><span>拦截 (黑名单)</span><span class="rate-info-value amber" id="riBlocked">—</span></div>
+                        <div class="rate-info-row"><span>白名单命中</span><span class="rate-info-value green" id="riAllowList">—</span></div>
                     </div>
                 </div>
                 <div class="stat-cards">
@@ -104,22 +107,22 @@
         const RING_C = 2 * Math.PI * 44;
         const STAT_PERIOD_HOURS = 24;
         const REFRESH_INTERVAL = 5000;
-        
-        let clientIP = ''; // 存储拿到的真实 IP
-        
+
+        let clientIP = ''; 
+
         const el = {
             statusOrb: document.getElementById('statusOrb'), statusTag: document.getElementById('statusTag'),
             title: document.getElementById('title'), desc: document.getElementById('desc'),
             errorBanner: document.getElementById('errorBanner'), content: document.getElementById('content'),
             ringFg: document.getElementById('ringFg'), ringValue: document.getElementById('ringValue'),
             riQueries: document.getElementById('riQueries'), riBlocked: document.getElementById('riBlocked'),
+            riAllowList: document.getElementById('riAllowList'), // 修改为白名单
             pQueries: document.getElementById('pQueries'), pBlocked: document.getElementById('pBlocked'),
             gQueries: document.getElementById('gQueries'), gBlocked: document.getElementById('gBlocked'),
             checkedAt: document.getElementById('checkedAt'), displayIp: document.getElementById('displayIp'),
             retryBtn: document.getElementById('retryBtn'),
         };
 
-        // 1. 先获取真实 IP，并展示
         async function getIp() {
             try {
                 const r = await fetch('/api/client-ip');
@@ -127,7 +130,7 @@
                 el.displayIp.textContent = clientIP;
             } catch (e) {
                 el.displayIp.textContent = '获取失败';
-                clientIP = '127.0.0.1'; // 兜底
+                clientIP = '127.0.0.1';
             }
         }
 
@@ -149,11 +152,9 @@
                 el.errorBanner.style.display = 'none';
             }
 
-            // 确保有 IP 才去查
             if (!clientIP) await getIp();
 
             try {
-                // 2. 带着我们拿到的真实 IP 去查
                 const [rLog, rStats] = await Promise.all([
                     fetch(`/control/querylog?search=${clientIP}&limit=5000`, { cache: 'no-store' }),
                     fetch('/control/stats', { cache: 'no-store' })
@@ -165,13 +166,19 @@
                 const statsData = await rStats.json();
                 const list = logData.data || [];
                 const periodStart = Date.now() - STAT_PERIOD_HOURS * 3600 * 1000;
-                
-                let queries = 0, blocked = 0;
+
+                let queries = 0, blocked = 0, allowList = 0;
                 for (const e of list) {
                     const t = new Date(String(e.Time).replace(/(\.\d{3})\d+/, '$1')).getTime();
                     if (t < periodStart) break;
                     queries++;
-                    if (e.Result && e.Result.IsFiltered === true) blocked++;
+                    
+                    if (e.Result && e.Result.IsFiltered === true) {
+                        blocked++;
+                    } else if (e.Reason && e.Reason.includes('AllowList')) {
+                        // 精准匹配白名单（命中 @@ 规则）
+                        allowList++;
+                    }
                 }
 
                 if (!isSilent) {
@@ -185,19 +192,21 @@
                 const rate = queries > 0 ? blocked / queries : 0;
                 el.ringFg.style.strokeDashoffset = RING_C * (1 - rate);
                 el.ringValue.textContent = queries > 0 ? (rate * 100).toFixed(1) + '%' : '0%';
-                
+
                 el.riQueries.textContent = fmtNum(queries);
                 el.riBlocked.textContent = fmtNum(blocked);
+                el.riAllowList.textContent = fmtNum(allowList); 
+
                 el.pQueries.textContent = fmtNum(queries);
                 el.pBlocked.textContent = fmtNum(blocked);
-                
+
                 const gQ = statsData.num_dns_queries || 0;
                 const gB = statsData.num_blocked_filtering || 0;
                 el.gQueries.textContent = fmtNum(gQ);
                 el.gBlocked.textContent = fmtNum(gB);
-                
+
                 el.checkedAt.textContent = formatTime(new Date().toISOString());
-                
+
                 if (!isSilent) el.content.style.display = 'block';
             } catch (err) {
                 if (!isSilent) {
@@ -215,8 +224,6 @@
         }
 
         el.retryBtn.addEventListener('click', () => check(false));
-        
-        // 启动时先获取 IP，再查询
         getIp().then(() => check(false));
         setInterval(() => check(true), REFRESH_INTERVAL);
     </script>
