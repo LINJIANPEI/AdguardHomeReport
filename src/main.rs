@@ -8,7 +8,6 @@ use axum::{
 use std::collections::HashMap;
 use std::io::Read;
 use std::net::{SocketAddr, UdpSocket};
-use std::process::Command;
 
 const INDEX_HTML: &str = include_str!("../web/index.html");
 const AGH_URL: &str = "http://127.0.0.1:3000";
@@ -23,7 +22,7 @@ async fn main() {
         .route("/control/*path", get(proxy_api).post(proxy_api));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8888));
-    
+
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(l) => l,
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
@@ -38,13 +37,19 @@ async fn main() {
 
     println!("✅ DNS 战报后端已启动: http://0.0.0.0:8888");
 
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }
 
 async fn serve_index() -> Html<&'static str> {
     Html(INDEX_HTML)
 }
 
+// 获取手机当前的物理 IP，如果被代理接管，则返回代理的虚拟 IP（比如 198.18.0.1）
 fn get_real_lan_ip() -> String {
     if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
         if socket.connect("223.5.5.5:53").is_ok() {
@@ -56,26 +61,14 @@ fn get_real_lan_ip() -> String {
             }
         }
     }
-
-    if let Ok(output) = Command::new("ip").args(&["-4", "addr"]).output() {
-        let s = String::from_utf8_lossy(&output.stdout);
-        for line in s.lines() {
-            let line = line.trim();
-            if line.starts_with("inet ") && !line.contains("127.0.0.1") {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() > 1 && parts[1].contains('.') {
-                    return parts[1].split('/').next().unwrap().to_string();
-                }
-            }
-        }
-    }
     "127.0.0.1".to_string()
 }
 
 async fn get_client_ip(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> String {
     let ip = addr.ip().to_string();
     let clean_ip = ip.strip_prefix("::ffff:").unwrap_or(&ip).to_string();
-    
+
+    // 如果本机访问，返回真实的网卡 IP（如 198.18.0.1）
     if clean_ip == "127.0.0.1" || clean_ip == "::1" {
         return get_real_lan_ip();
     }
@@ -83,14 +76,17 @@ async fn get_client_ip(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> String {
 }
 
 async fn proxy_api(
-    Path(path): Path<String>, 
+    Path(path): Path<String>,
     Query(query): Query<HashMap<String, String>>,
-    ConnectInfo(_addr): ConnectInfo<SocketAddr>
+    ConnectInfo(_addr): ConnectInfo<SocketAddr>,
 ) -> Response {
-    // 完全信任前端传来的 search 参数（前端现在会传 198.18.0.1 等真实 IP）
+    // ✨ 核心：完全信任前端传来的 search 参数（传 198.18.0.1 就查 198.18.0.1）
     let mut url = format!("{}/control/{}", AGH_URL, path);
     if !query.is_empty() {
-        let qs: Vec<String> = query.iter().map(|(k, v)| format!("{}={}", k, urlencoding::encode(v))).collect();
+        let qs: Vec<String> = query
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
+            .collect();
         url = format!("{}?{}", url, qs.join("&"));
     }
 
@@ -122,7 +118,9 @@ async fn proxy_api(
             }
             Err(e) => Err(e.to_string()),
         }
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
 
     match result {
         Ok(body_bytes) => {
@@ -130,6 +128,10 @@ async fn proxy_api(
             headers.insert("Content-Type", "application/json".parse().unwrap());
             (StatusCode::OK, headers, body_bytes).into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Proxy error: {}", e)).into_response()
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Proxy error: {}", e),
+        )
+            .into_response(),
     }
 }
