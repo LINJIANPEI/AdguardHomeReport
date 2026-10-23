@@ -1,406 +1,71 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>DNS 状态检测 · 实时战报</title>
     <style>
-        :root {
-            --bg: #070b14;
-            --card: rgba(17, 24, 39, .72);
-            --border: rgba(148, 163, 184, .10);
-            --text: #e5e7eb;
-            --text-dim: #94a3b8;
-            --text-faint: #64748b;
-            --green: #10b981;
-            --green-bg: rgba(16, 185, 129, .10);
-            --amber: #f59e0b;
-            --amber-bg: rgba(245, 158, 11, .10);
-            --red: #ef4444;
-            --red-bg: rgba(239, 68, 68, .10);
-            --blue: #3b82f6;
-            --purple: #8b5cf6;
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        html,
-        body {
-            height: 100%;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            padding: 24px 14px;
-        }
-
-        .bg-layer {
-            position: fixed;
-            inset: 0;
-            z-index: 0;
-            pointer-events: none;
-        }
-
-        .bg-grid {
-            position: absolute;
-            inset: -1px;
-            background-image: linear-gradient(rgba(148, 163, 184, .045) 1px, transparent 1px), linear-gradient(90deg, rgba(148, 163, 184, .045) 1px, transparent 1px);
-            background-size: 44px 44px;
-            mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 40%, transparent 100%);
-        }
-
-        .bg-glow {
-            position: absolute;
-            border-radius: 50%;
-            filter: blur(90px);
-            opacity: .55;
-        }
-
-        .bg-glow.a {
-            width: 420px;
-            height: 420px;
-            top: -140px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: radial-gradient(circle, rgba(59, 130, 246, .35), transparent 70%);
-        }
-
-        .bg-glow.b {
-            width: 360px;
-            height: 360px;
-            bottom: -120px;
-            right: -80px;
-            background: radial-gradient(circle, rgba(16, 185, 129, .22), transparent 70%);
-        }
-
-        .wrap {
-            position: relative;
-            z-index: 1;
-            width: 100%;
-            max-width: 480px;
-        }
-
-        .topbar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 18px;
-            padding: 0 4px;
-        }
-
-        .brand-logo {
-            width: 34px;
-            height: 34px;
-            border-radius: 10px;
-            background: linear-gradient(135deg, var(--blue), var(--purple));
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 17px;
-            font-weight: 800;
-            color: #fff;
-        }
-
-        .brand-text .name {
-            font-size: 14px;
-            font-weight: 650;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .brand-text .sub {
-            font-size: 10px;
-            color: var(--text-faint);
-            margin-top: 2px;
-        }
-
-        .card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 20px;
-            padding: 24px 18px 20px;
-            text-align: center;
-        }
-
-        .status-orb {
-            width: 96px;
-            height: 96px;
-            margin: 0 auto 16px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 32px;
-            font-weight: 800;
-        }
-
-        .status-orb.active {
-            background: var(--green-bg);
-            color: var(--green);
-            box-shadow: 0 0 30px rgba(16, 185, 129, .2);
-        }
-
-        .status-orb.inactive {
-            background: var(--amber-bg);
-            color: var(--amber);
-        }
-
-        .status-orb.error {
-            background: var(--red-bg);
-            color: var(--red);
-        }
-
-        .status-orb.loading {
-            background: linear-gradient(145deg, #1e293b, #0f172a);
-            color: var(--text-dim);
-        }
-
-        h1 {
-            font-size: 20px;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-
-        .status-tag {
-            display: inline-block;
-            font-size: 10px;
-            font-weight: 700;
-            padding: 3px 10px;
-            border-radius: 6px;
-            margin-bottom: 10px;
-        }
-
-        .status-tag.active {
-            color: var(--green);
-            background: var(--green-bg);
-        }
-
-        .status-tag.inactive {
-            color: var(--amber);
-            background: var(--amber-bg);
-        }
-
-        .status-tag.error {
-            color: var(--red);
-            background: var(--red-bg);
-        }
-
-        .status-tag.loading {
-            color: var(--text-dim);
-            background: rgba(148, 163, 184, .08);
-        }
-
-        .desc {
-            font-size: 12.5px;
-            color: var(--text-dim);
-            margin: 0 auto;
-            line-height: 1.5;
-        }
-
-        .section-title {
-            margin: 22px 0 12px;
-            font-size: 10.5px;
-            font-weight: 700;
-            color: var(--text-faint);
-        }
-
-        .rate-panel {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 16px 14px;
-            background: rgba(15, 23, 42, .4);
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            margin-bottom: 12px;
-            gap: 10px;
-        }
-
-        .ring-wrap {
-            position: relative;
-            width: 90px;
-            height: 90px;
-        }
-
-        .ring-svg {
-            transform: rotate(-90deg);
-        }
-
-        .ring-bg {
-            fill: none;
-            stroke: rgba(148, 163, 184, .10);
-            stroke-width: 8;
-        }
-
-        .ring-fg {
-            fill: none;
-            stroke: url(#ringGrad);
-            stroke-width: 8;
-            stroke-linecap: round;
-            transition: stroke-dashoffset 1s;
-        }
-
-        .ring-center {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .ring-value {
-            font-size: 18px;
-            font-weight: 800;
-            color: var(--green);
-        }
-
-        .rate-info {
-            text-align: left;
-            flex: 1;
-        }
-
-        .rate-info-row {
-            display: flex;
-            justify-content: space-between;
-            font-size: 12px;
-            padding: 6px 0;
-            border-top: 1px dashed rgba(148, 163, 184, .10);
-        }
-
-        .rate-info-row:first-child {
-            border: none;
-        }
-
-        .rate-info-value {
-            font-family: monospace;
-            font-weight: 700;
-        }
-
-        .rate-info-value.amber {
-            color: var(--amber);
-        }
-
-        .rate-info-value.green {
-            color: var(--green);
-        }
-
-        .stat-cards {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
-
-        .stat-card {
-            background: rgba(15, 23, 42, .45);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 12px;
-            text-align: left;
-        }
-
-        .stat-big {
-            font-family: monospace;
-            font-size: 22px;
-            font-weight: 800;
-            margin-top: 8px;
-        }
-
-        .stat-sub {
-            font-size: 10.5px;
-            color: var(--text-faint);
-            margin-top: 4px;
-        }
-
-        .meta-table {
-            margin-top: 16px;
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            background: rgba(15, 23, 42, .35);
-        }
-
-        .meta-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 14px;
-            font-size: 12px;
-            border-bottom: 1px solid rgba(148, 163, 184, .06);
-        }
-
-        .meta-row:last-child {
-            border: none;
-        }
-
-        .meta-value {
-            font-family: monospace;
-        }
-
-        .meta-value.green {
-            color: var(--green);
-        }
-
-        .actions {
-            margin-top: 18px;
-        }
-
-        .btn {
-            width: 100%;
-            padding: 12px;
-            border-radius: 10px;
-            font-size: 13px;
-            font-weight: 600;
-            background: linear-gradient(135deg, var(--blue), var(--purple));
-            color: #fff;
-            border: none;
-            cursor: pointer;
-        }
-
-        .error-banner {
-            margin-top: 14px;
-            padding: 10px;
-            border-radius: 8px;
-            background: rgba(239, 68, 68, .08);
-            color: #fca5a5;
-            font-size: 11.5px;
-            text-align: left;
-            display: none;
-        }
-
-        .footer {
-            margin-top: 18px;
-            text-align: center;
-            font-size: 10.5px;
-            color: var(--text-faint);
-        }
+        :root { --bg: #070b14; --card: rgba(17,24,39,.72); --border: rgba(148,163,184,.10); --text: #e5e7eb; --text-dim: #94a3b8; --text-faint: #64748b; --green: #10b981; --green-bg: rgba(16,185,129,.10); --amber: #f59e0b; --amber-bg: rgba(245,158,11,.10); --red: #ef4444; --red-bg: rgba(239,68,68,.10); --blue: #3b82f6; --purple: #8b5cf6; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; justify-content: center; padding: 24px 14px; }
+        .bg-layer { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+        .bg-grid { position: absolute; inset: -1px; background-image: linear-gradient(rgba(148,163,184,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,.045) 1px, transparent 1px); background-size: 44px 44px; mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 40%, transparent 100%); }
+        .bg-glow { position: absolute; border-radius: 50%; filter: blur(90px); opacity: .55; }
+        .bg-glow.a { width: 420px; height: 420px; top: -140px; left: 50%; transform: translateX(-50%); background: radial-gradient(circle, rgba(59,130,246,.35), transparent 70%); }
+        .bg-glow.b { width: 360px; height: 360px; bottom: -120px; right: -80px; background: radial-gradient(circle, rgba(16,185,129,.22), transparent 70%); }
+        .wrap { position: relative; z-index: 1; width: 100%; max-width: 480px; }
+        .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; padding: 0 4px; }
+        .brand-logo { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, var(--blue), var(--purple)); display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 800; color: #fff; }
+        .brand-text .name { font-size: 14px; font-weight: 650; display: flex; align-items: center; gap: 6px; }
+        .brand-text .sub { font-size: 10px; color: var(--text-faint); margin-top: 2px; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 24px 18px 20px; text-align: center; }
+        .status-orb { width: 96px; height: 96px; margin: 0 auto 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: 800; }
+        .status-orb.active { background: var(--green-bg); color: var(--green); box-shadow: 0 0 30px rgba(16,185,129,.2); }
+        .status-orb.inactive { background: var(--amber-bg); color: var(--amber); }
+        .status-orb.error { background: var(--red-bg); color: var(--red); }
+        .status-orb.loading { background: linear-gradient(145deg, #1e293b, #0f172a); color: var(--text-dim); }
+        h1 { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+        .status-tag { display: inline-block; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 6px; margin-bottom: 10px; }
+        .status-tag.active { color: var(--green); background: var(--green-bg); }
+        .status-tag.inactive { color: var(--amber); background: var(--amber-bg); }
+        .status-tag.error { color: var(--red); background: var(--red-bg); }
+        .status-tag.loading { color: var(--text-dim); background: rgba(148,163,184,.08); }
+        .desc { font-size: 12.5px; color: var(--text-dim); margin: 0 auto; line-height: 1.5; }
+        .section-title { margin: 22px 0 12px; font-size: 10.5px; font-weight: 700; color: var(--text-faint); }
+        .rate-panel { display: flex; align-items: center; justify-content: space-between; padding: 16px 14px; background: rgba(15,23,42,.4); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 12px; gap: 10px; }
+        .ring-wrap { position: relative; width: 90px; height: 90px; }
+        .ring-svg { transform: rotate(-90deg); }
+        .ring-bg { fill: none; stroke: rgba(148,163,184,.10); stroke-width: 8; }
+        .ring-fg { fill: none; stroke: url(#ringGrad); stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 1s; }
+        .ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .ring-value { font-size: 18px; font-weight: 800; color: var(--green); }
+        .rate-info { text-align: left; flex: 1; }
+        .rate-info-row { display: flex; justify-content: space-between; font-size: 12px; padding: 6px 0; border-top: 1px dashed rgba(148,163,184,.10); }
+        .rate-info-row:first-child { border: none; }
+        .rate-info-value { font-family: monospace; font-weight: 700; }
+        .rate-info-value.amber { color: var(--amber); }
+        .rate-info-value.green { color: var(--green); }
+        .stat-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .stat-card { background: rgba(15,23,42,.45); border: 1px solid var(--border); border-radius: 12px; padding: 12px; text-align: left; }
+        .stat-big { font-family: monospace; font-size: 22px; font-weight: 800; margin-top: 8px; }
+        .stat-sub { font-size: 10.5px; color: var(--text-faint); margin-top: 4px; }
+        .meta-table { margin-top: 16px; border: 1px solid var(--border); border-radius: 12px; background: rgba(15,23,42,.35); }
+        .meta-row { display: flex; justify-content: space-between; padding: 10px 14px; font-size: 12px; border-bottom: 1px solid rgba(148,163,184,.06); }
+        .meta-row:last-child { border: none; }
+        .meta-value { font-family: monospace; }
+        .meta-value.green { color: var(--green); }
+        .actions { margin-top: 18px; }
+        .btn { width: 100%; padding: 12px; border-radius: 10px; font-size: 13px; font-weight: 600; background: linear-gradient(135deg, var(--blue), var(--purple)); color: #fff; border: none; cursor: pointer; }
+        .error-banner { margin-top: 14px; padding: 10px; border-radius: 8px; background: rgba(239,68,68,.08); color: #fca5a5; font-size: 11.5px; text-align: left; display: none; }
+        .footer { margin-top: 18px; text-align: center; font-size: 10.5px; color: var(--text-faint); }
     </style>
 </head>
-
 <body>
-    <div class="bg-layer">
-        <div class="bg-grid"></div>
-        <div class="bg-glow a"></div>
-        <div class="bg-glow b"></div>
-    </div>
+    <div class="bg-layer"><div class="bg-grid"></div><div class="bg-glow a"></div><div class="bg-glow b"></div></div>
     <div class="wrap">
         <div class="topbar">
-            <div class="brand">
-                <div class="brand-logo">D</div>
-                <div class="brand-text">
-                    <div class="name">DNS 检测 <span style="font-size:9px;color:var(--green);">Rust</span></div>
-                    <div class="sub">局域网全设备版</div>
-                </div>
-            </div>
+            <div class="brand"><div class="brand-logo">D</div><div class="brand-text"><div class="name">DNS 检测 <span style="font-size:9px;color:var(--green);">Rust</span></div><div class="sub">全真实 IP 查询版</div></div></div>
         </div>
         <div class="card">
             <div class="status-orb loading" id="statusOrb"></div>
@@ -408,44 +73,22 @@
             <h1 id="title">正在检测…</h1>
             <p class="desc" id="desc">正在读取本地 DNS 记录</p>
             <div class="error-banner" id="errorBanner"></div>
-
+            
             <div id="content" style="display:none;">
                 <div class="section-title">拦截概览 (最近24小时)</div>
                 <div class="rate-panel">
                     <div class="ring-wrap">
-                        <svg class="ring-svg" viewBox="0 0 104 104">
-                            <defs>
-                                <linearGradient id="ringGrad">
-                                    <stop offset="0%" stop-color="#10b981" />
-                                    <stop offset="100%" stop-color="#06b6d4" />
-                                </linearGradient>
-                            </defs>
-                            <circle class="ring-bg" cx="52" cy="52" r="44" />
-                            <circle class="ring-fg" id="ringFg" cx="52" cy="52" r="44" stroke-dasharray="276.46"
-                                stroke-dashoffset="276.46" />
-                        </svg>
-                        <div class="ring-center">
-                            <div class="ring-value" id="ringValue">—</div>
-                        </div>
+                        <svg class="ring-svg" viewBox="0 0 104 104"><defs><linearGradient id="ringGrad"><stop offset="0%" stop-color="#10b981"/><stop offset="100%" stop-color="#06b6d4"/></linearGradient></defs><circle class="ring-bg" cx="52" cy="52" r="44"/><circle class="ring-fg" id="ringFg" cx="52" cy="52" r="44" stroke-dasharray="276.46" stroke-dashoffset="276.46"/></svg>
+                        <div class="ring-center"><div class="ring-value" id="ringValue">—</div></div>
                     </div>
                     <div class="rate-info">
-                        <div class="rate-info-row"><span>解析量</span><span class="rate-info-value" id="riQueries">—</span>
-                        </div>
-                        <div class="rate-info-row"><span>拦截量</span><span class="rate-info-value amber"
-                                id="riBlocked">—</span></div>
+                        <div class="rate-info-row"><span>解析量</span><span class="rate-info-value" id="riQueries">—</span></div>
+                        <div class="rate-info-row"><span>拦截量</span><span class="rate-info-value amber" id="riBlocked">—</span></div>
                     </div>
                 </div>
                 <div class="stat-cards">
-                    <div class="stat-card">
-                        <div style="font-size:11px;color:var(--text-faint);">我的解析</div>
-                        <div class="stat-big" id="pQueries">—</div>
-                        <div class="stat-sub">拦截 <span id="pBlocked">—</span> 次</div>
-                    </div>
-                    <div class="stat-card">
-                        <div style="font-size:11px;color:var(--text-faint);">全站数据</div>
-                        <div class="stat-big" id="gQueries">—</div>
-                        <div class="stat-sub">拦截 <span id="gBlocked">—</span> 次</div>
-                    </div>
+                    <div class="stat-card"><div style="font-size:11px;color:var(--text-faint);">我的解析</div><div class="stat-big" id="pQueries">—</div><div class="stat-sub">拦截 <span id="pBlocked">—</span> 次</div></div>
+                    <div class="stat-card"><div style="font-size:11px;color:var(--text-faint);">全站数据</div><div class="stat-big" id="gQueries">—</div><div class="stat-sub">拦截 <span id="gBlocked">—</span> 次</div></div>
                 </div>
                 <div class="meta-table">
                     <div class="meta-row"><span>客户端 IP</span><span class="meta-value" id="displayIp">获取中...</span></div>
@@ -461,7 +104,9 @@
         const RING_C = 2 * Math.PI * 44;
         const STAT_PERIOD_HOURS = 24;
         const REFRESH_INTERVAL = 5000;
-
+        
+        let clientIP = ''; // 存储拿到的真实 IP
+        
         const el = {
             statusOrb: document.getElementById('statusOrb'), statusTag: document.getElementById('statusTag'),
             title: document.getElementById('title'), desc: document.getElementById('desc'),
@@ -474,18 +119,23 @@
             retryBtn: document.getElementById('retryBtn'),
         };
 
-        // 页面加载时，向 Rust 后端请求当前浏览器的真实 IP 用于展示
-        fetch('/api/client-ip').then(r => r.text()).then(ip => {
-            el.displayIp.textContent = ip;
-        }).catch(() => {
-            el.displayIp.textContent = '未知 IP';
-        });
+        // 1. 先获取真实 IP，并展示
+        async function getIp() {
+            try {
+                const r = await fetch('/api/client-ip');
+                clientIP = await r.text();
+                el.displayIp.textContent = clientIP;
+            } catch (e) {
+                el.displayIp.textContent = '获取失败';
+                clientIP = '127.0.0.1'; // 兜底
+            }
+        }
 
         function fmtNum(n) { return (n === null || n === undefined || isNaN(n)) ? '—' : Number(n).toLocaleString('en-US'); }
         function formatTime(iso) {
             if (!iso) return '—';
             const d = new Date(String(iso).replace(/(\.\d{3})\d+/, '$1'));
-            return isNaN(d.getTime()) ? '—' : `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
+            return isNaN(d.getTime()) ? '—' : `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`;
         }
 
         async function check(isSilent = false) {
@@ -499,10 +149,13 @@
                 el.errorBanner.style.display = 'none';
             }
 
+            // 确保有 IP 才去查
+            if (!clientIP) await getIp();
+
             try {
-                // 注意这里去掉了 search 参数，后端会自动帮我们根据访问者 IP 注入
+                // 2. 带着我们拿到的真实 IP 去查
                 const [rLog, rStats] = await Promise.all([
-                    fetch(`/control/querylog?limit=5000`, { cache: 'no-store' }),
+                    fetch(`/control/querylog?search=${clientIP}&limit=5000`, { cache: 'no-store' }),
                     fetch('/control/stats', { cache: 'no-store' })
                 ]);
 
@@ -512,7 +165,7 @@
                 const statsData = await rStats.json();
                 const list = logData.data || [];
                 const periodStart = Date.now() - STAT_PERIOD_HOURS * 3600 * 1000;
-
+                
                 let queries = 0, blocked = 0;
                 for (const e of list) {
                     const t = new Date(String(e.Time).replace(/(\.\d{3})\d+/, '$1')).getTime();
@@ -526,25 +179,25 @@
                     el.statusTag.className = 'status-tag active';
                     el.statusTag.textContent = '已连接';
                     el.title.textContent = 'DNS 正在生效';
-                    el.desc.textContent = '已成功读取本设备的 DNS 查询数据';
+                    el.desc.textContent = `已成功读取 ${clientIP} 的数据`;
                 }
 
                 const rate = queries > 0 ? blocked / queries : 0;
                 el.ringFg.style.strokeDashoffset = RING_C * (1 - rate);
                 el.ringValue.textContent = queries > 0 ? (rate * 100).toFixed(1) + '%' : '0%';
-
+                
                 el.riQueries.textContent = fmtNum(queries);
                 el.riBlocked.textContent = fmtNum(blocked);
                 el.pQueries.textContent = fmtNum(queries);
                 el.pBlocked.textContent = fmtNum(blocked);
-
+                
                 const gQ = statsData.num_dns_queries || 0;
                 const gB = statsData.num_blocked_filtering || 0;
                 el.gQueries.textContent = fmtNum(gQ);
                 el.gBlocked.textContent = fmtNum(gB);
-
+                
                 el.checkedAt.textContent = formatTime(new Date().toISOString());
-
+                
                 if (!isSilent) el.content.style.display = 'block';
             } catch (err) {
                 if (!isSilent) {
@@ -562,9 +215,10 @@
         }
 
         el.retryBtn.addEventListener('click', () => check(false));
-        check(false);
+        
+        // 启动时先获取 IP，再查询
+        getIp().then(() => check(false));
         setInterval(() => check(true), REFRESH_INTERVAL);
     </script>
 </body>
-
 </html>
