@@ -45,9 +45,7 @@ async fn serve_index() -> Html<&'static str> {
     Html(INDEX_HTML)
 }
 
-// 获取手机真实的 IP (不管是 192.168, 10.x 还是 198.18 全部放行)
 fn get_real_lan_ip() -> String {
-    // 1. UDP 探测获取默认路由出口 IP
     if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
         if socket.connect("223.5.5.5:53").is_ok() {
             if let Ok(addr) = socket.local_addr() {
@@ -59,7 +57,6 @@ fn get_real_lan_ip() -> String {
         }
     }
 
-    // 2. 如果 UDP 失败，直接读取网卡信息
     if let Ok(output) = Command::new("ip").args(&["-4", "addr"]).output() {
         let s = String::from_utf8_lossy(&output.stdout);
         for line in s.lines() {
@@ -72,7 +69,6 @@ fn get_real_lan_ip() -> String {
             }
         }
     }
-    
     "127.0.0.1".to_string()
 }
 
@@ -80,34 +76,18 @@ async fn get_client_ip(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> String {
     let ip = addr.ip().to_string();
     let clean_ip = ip.strip_prefix("::ffff:").unwrap_or(&ip).to_string();
     
-    // 如果是手机本机访问，强行展示真实网卡 IP
     if clean_ip == "127.0.0.1" || clean_ip == "::1" {
-        let real_ip = get_real_lan_ip();
-        if real_ip != "127.0.0.1" {
-            return real_ip;
-        }
+        return get_real_lan_ip();
     }
     clean_ip
 }
 
 async fn proxy_api(
     Path(path): Path<String>, 
-    Query(mut query): Query<HashMap<String, String>>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>
+    Query(query): Query<HashMap<String, String>>,
+    ConnectInfo(_addr): ConnectInfo<SocketAddr>
 ) -> Response {
-    let ip = addr.ip().to_string();
-    let client_ip = ip.strip_prefix("::ffff:").unwrap_or(&ip).to_string();
-
-    if path == "querylog" {
-        if client_ip == "127.0.0.1" || client_ip == "::1" {
-            // 核心逻辑：手机自己的 DNS 请求全在 127.0.0.1，必须用 127 查才能出数据
-            query.insert("search".to_string(), "127.0.0.1".to_string());
-        } else {
-            // 局域网内的其他设备，用它们自己的真实 IP 查
-            query.insert("search".to_string(), client_ip);
-        }
-    }
-
+    // 完全信任前端传来的 search 参数（前端现在会传 198.18.0.1 等真实 IP）
     let mut url = format!("{}/control/{}", AGH_URL, path);
     if !query.is_empty() {
         let qs: Vec<String> = query.iter().map(|(k, v)| format!("{}={}", k, urlencoding::encode(v))).collect();
