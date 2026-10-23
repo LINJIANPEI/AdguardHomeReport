@@ -51,7 +51,10 @@
         .stat-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .stat-card { background: rgba(15,23,42,.45); border: 1px solid var(--border); border-radius: 12px; padding: 12px; text-align: left; }
         .stat-big { font-family: monospace; font-size: 22px; font-weight: 800; margin-top: 8px; }
-        .stat-sub { font-size: 10.5px; color: var(--text-faint); margin-top: 4px; }
+        .stat-sub { font-size: 10.5px; color: var(--text-faint); margin-top: 4px; display: flex; align-items: center; gap: 4px;}
+        .stat-sub.amber { color: var(--amber); }
+        .stat-sub.green { color: var(--green); }
+        
         .meta-table { margin-top: 16px; border: 1px solid var(--border); border-radius: 12px; background: rgba(15,23,42,.35); }
         .meta-row { display: flex; justify-content: space-between; padding: 10px 14px; font-size: 12px; border-bottom: 1px solid rgba(148,163,184,.06); }
         .meta-row:last-child { border: none; }
@@ -86,13 +89,25 @@
                     <div class="rate-info">
                         <div class="rate-info-row"><span>解析量</span><span class="rate-info-value" id="riQueries">—</span></div>
                         <div class="rate-info-row"><span>拦截 (黑名单)</span><span class="rate-info-value amber" id="riBlocked">—</span></div>
-                        <div class="rate-info-row"><span>白名单命中</span><span class="rate-info-value green" id="riAllowList">—</span></div>
+                        <div class="rate-info-row"><span>放行 (白名单)</span><span class="rate-info-value green" id="riAllowList">—</span></div>
                     </div>
                 </div>
+                
                 <div class="stat-cards">
-                    <div class="stat-card"><div style="font-size:11px;color:var(--text-faint);">我的解析</div><div class="stat-big" id="pQueries">—</div><div class="stat-sub">拦截 <span id="pBlocked">—</span> 次</div></div>
-                    <div class="stat-card"><div style="font-size:11px;color:var(--text-faint);">全站数据</div><div class="stat-big" id="gQueries">—</div><div class="stat-sub">拦截 <span id="gBlocked">—</span> 次</div></div>
+                    <div class="stat-card">
+                        <div style="font-size:11px;color:var(--text-faint);">我的解析</div>
+                        <div class="stat-big" id="pQueries">—</div>
+                        <div class="stat-sub amber"><span class="dot" style="width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.7;"></span>拦截 <span id="pBlocked">—</span> 次</div>
+                        <div class="stat-sub green"><span class="dot" style="width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.7;"></span>放行 <span id="pAllowList">—</span> 次</div>
+                    </div>
+                    <div class="stat-card">
+                        <div style="font-size:11px;color:var(--text-faint);">全站数据</div>
+                        <div class="stat-big" id="gQueries">—</div>
+                        <div class="stat-sub amber"><span class="dot" style="width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.7;"></span>拦截 <span id="gBlocked">—</span> 次</div>
+                        <div class="stat-sub green"><span class="dot" style="width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.7;"></span>放行 <span id="gAllowList">—</span> 次</div>
+                    </div>
                 </div>
+                
                 <div class="meta-table">
                     <div class="meta-row"><span>客户端 IP</span><span class="meta-value" id="displayIp">获取中...</span></div>
                     <div class="meta-row"><span>检测时间</span><span class="meta-value" id="checkedAt">—</span></div>
@@ -116,9 +131,9 @@
             errorBanner: document.getElementById('errorBanner'), content: document.getElementById('content'),
             ringFg: document.getElementById('ringFg'), ringValue: document.getElementById('ringValue'),
             riQueries: document.getElementById('riQueries'), riBlocked: document.getElementById('riBlocked'),
-            riAllowList: document.getElementById('riAllowList'), // 修改为白名单
-            pQueries: document.getElementById('pQueries'), pBlocked: document.getElementById('pBlocked'),
-            gQueries: document.getElementById('gQueries'), gBlocked: document.getElementById('gBlocked'),
+            riAllowList: document.getElementById('riAllowList'), 
+            pQueries: document.getElementById('pQueries'), pBlocked: document.getElementById('pBlocked'), pAllowList: document.getElementById('pAllowList'),
+            gQueries: document.getElementById('gQueries'), gBlocked: document.getElementById('gBlocked'), gAllowList: document.getElementById('gAllowList'),
             checkedAt: document.getElementById('checkedAt'), displayIp: document.getElementById('displayIp'),
             retryBtn: document.getElementById('retryBtn'),
         };
@@ -176,7 +191,6 @@
                     if (e.Result && e.Result.IsFiltered === true) {
                         blocked++;
                     } else if (e.Reason && e.Reason.includes('AllowList')) {
-                        // 精准匹配白名单（命中 @@ 规则）
                         allowList++;
                     }
                 }
@@ -193,17 +207,22 @@
                 el.ringFg.style.strokeDashoffset = RING_C * (1 - rate);
                 el.ringValue.textContent = queries > 0 ? (rate * 100).toFixed(1) + '%' : '0%';
 
+                // 个人数据
                 el.riQueries.textContent = fmtNum(queries);
                 el.riBlocked.textContent = fmtNum(blocked);
                 el.riAllowList.textContent = fmtNum(allowList); 
-
                 el.pQueries.textContent = fmtNum(queries);
                 el.pBlocked.textContent = fmtNum(blocked);
+                el.pAllowList.textContent = fmtNum(allowList);
 
+                // 全站数据
                 const gQ = statsData.num_dns_queries || 0;
                 const gB = statsData.num_blocked_filtering || 0;
+                const gA = gQ - gB; // 全站放行量 = 总查询 - 总拦截
+                
                 el.gQueries.textContent = fmtNum(gQ);
                 el.gBlocked.textContent = fmtNum(gB);
+                el.gAllowList.textContent = fmtNum(gA);
 
                 el.checkedAt.textContent = formatTime(new Date().toISOString());
 
