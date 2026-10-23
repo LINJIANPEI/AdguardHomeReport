@@ -49,7 +49,6 @@ async fn serve_index() -> Html<&'static str> {
     Html(INDEX_HTML)
 }
 
-// 获取手机当前的物理 IP，如果被代理接管，则返回代理的虚拟 IP（比如 198.18.0.1）
 fn get_real_lan_ip() -> String {
     if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
         if socket.connect("223.5.5.5:53").is_ok() {
@@ -68,7 +67,6 @@ async fn get_client_ip(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> String {
     let ip = addr.ip().to_string();
     let clean_ip = ip.strip_prefix("::ffff:").unwrap_or(&ip).to_string();
 
-    // 如果本机访问，返回真实的网卡 IP（如 198.18.0.1）
     if clean_ip == "127.0.0.1" || clean_ip == "::1" {
         return get_real_lan_ip();
     }
@@ -80,7 +78,7 @@ async fn proxy_api(
     Query(query): Query<HashMap<String, String>>,
     ConnectInfo(_addr): ConnectInfo<SocketAddr>,
 ) -> Response {
-    // ✨ 核心：完全信任前端传来的 search 参数（传 198.18.0.1 就查 198.18.0.1）
+    // 完全信任前端传来的 search 参数（前端传什么就查什么）
     let mut url = format!("{}/control/{}", AGH_URL, path);
     if !query.is_empty() {
         let qs: Vec<String> = query

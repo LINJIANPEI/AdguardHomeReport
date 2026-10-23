@@ -176,6 +176,7 @@
             background: linear-gradient(90deg, transparent, rgba(59, 130, 246, .8), transparent);
         }
 
+        /* 动态状态球 */
         .status-orb {
             position: relative;
             width: 96px;
@@ -381,6 +382,7 @@
             background: linear-gradient(90deg, transparent, var(--border), transparent);
         }
 
+        /* 环形图区域 */
         .rate-panel {
             display: flex;
             align-items: center;
@@ -480,6 +482,7 @@
             color: var(--green);
         }
 
+        /* 数据卡片（含迷你柱状图） */
         .stat-cards {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -585,6 +588,7 @@
             color: var(--amber);
         }
 
+        /* 迷你柱状图 */
         .mini-bars {
             display: flex;
             align-items: flex-end;
@@ -609,6 +613,7 @@
             background: linear-gradient(180deg, rgba(139, 92, 246, .8), rgba(139, 92, 246, .2));
         }
 
+        /* 信息表格 */
         .meta-table {
             margin-top: 16px;
             border: 1px solid var(--border);
@@ -756,8 +761,8 @@
             <div class="brand">
                 <div class="brand-logo">D</div>
                 <div class="brand-text">
-                    <div class="name">DNS 检测 <span style="font-size:9px;color:var(--green);">V7.1</span></div>
-                    <div class="sub">纯真实 IP 直连版</div>
+                    <div class="name">DNS 检测 <span style="font-size:9px;color:var(--green);">V7.2</span></div>
+                    <div class="sub">修复数据限制完美版</div>
                 </div>
             </div>
         </div>
@@ -969,11 +974,20 @@
 
         async function initialFetch(ip) {
             const periodStart = Date.now() - STAT_PERIOD_HOURS * 3600 * 1000;
-            // 这里直接请求数据，后端会自动去 Login 并带上 Cookie
-            const rLog = await fetch(`/control/querylog?search=${encodeURIComponent(ip)}&limit=100000`, { cache: 'no-store' });
+
+            // ⚠️ 将 limit 降低到 5000，防止 AdGuard 报错
+            const rLog = await fetch(`/control/querylog?search=${encodeURIComponent(ip)}&limit=5000`, { cache: 'no-store' });
             if (rLog.status === 401) throw new Error('AUTH');
+
             const log = await rLog.json();
-            const list = log.data || [];
+
+            // 防错：如果拿到的不是数组，说明后端报错了
+            if (!log.data || !Array.isArray(log.data)) {
+                console.error("接口返回异常:", log);
+                return { queries: 0, blocked: 0, allowed: 0, lastSeen: null, firstSeen: null };
+            }
+
+            const list = log.data;
 
             let queries = 0, blocked = 0, allowed = 0, lastSeen = null, firstSeen = null;
 
@@ -1041,7 +1055,6 @@
             const j = await r.json();
             const gTotal = j.num_dns_queries || 0;
             const gBlocked = j.num_blocked_filtering || 0;
-            // 全站放行量直接计算
             state.global = { queries: gTotal, blocked: gBlocked, allowed: gTotal - gBlocked };
         }
 
@@ -1119,11 +1132,9 @@
             el.title.textContent = '正在获取 IP…';
 
             try {
-                // 1. 获取 IP (无需登录)
                 state.ip = await fetchClientIPFromLucky();
 
                 el.title.textContent = '正在检测…';
-                // 2. 直接请求数据，后端帮你处理好 Cookie
                 await Promise.all([initialFetch(state.ip), fetchGlobal()]);
 
                 const threshold = Date.now() - WINDOW_MINS * 60000;
