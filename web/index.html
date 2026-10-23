@@ -1,723 +1,309 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>DNS 状态检测 · 实时战报</title>
-    <style>
-        :root {
-            --bg: #070b14; --card: rgba(17, 24, 39, .72); --border: rgba(148, 163, 184, .10);
-            --border-strong: rgba(148, 163, 184, .18); --text: #e5e7eb; --text-dim: #94a3b8;
-            --text-faint: #64748b; --green: #10b981; --green-bg: rgba(16, 185, 129, .10);
-            --amber: #f59e0b; --amber-bg: rgba(245, 158, 11, .10); --red: #ef4444;
-            --red-bg: rgba(239, 68, 68, .10); --blue: #3b82f6; --purple: #8b5cf6;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { height: 100%; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-            background: var(--bg); color: var(--text); min-height: 100vh;
-            -webkit-font-smoothing: antialiased; overflow-x: hidden; position: relative;
-            display: flex; justify-content: center; padding: 24px 14px;
-        }
-        .bg-layer { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
-        .bg-grid {
-            position: absolute; inset: -1px;
-            background-image: linear-gradient(rgba(148, 163, 184, .045) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(148, 163, 184, .045) 1px, transparent 1px);
-            background-size: 44px 44px;
-            mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 40%, transparent 100%);
-            -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 40%, transparent 100%);
-        }
-        .bg-glow { position: absolute; border-radius: 50%; filter: blur(90px); opacity: .55; animation: float 14s ease-in-out infinite; }
-        .bg-glow.a { width: 420px; height: 420px; top: -140px; left: 50%; transform: translateX(-50%); background: radial-gradient(circle, rgba(59, 130, 246, .35), transparent 70%); }
-        .bg-glow.b { width: 360px; height: 360px; bottom: -120px; right: -80px; background: radial-gradient(circle, rgba(16, 185, 129, .22), transparent 70%); animation-delay: -5s; }
-        @keyframes float { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-24px) scale(1.06); } }
-
-        .wrap { position: relative; z-index: 1; width: 100%; max-width: 480px; }
-        .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; padding: 0 4px; }
-        .brand { display: flex; align-items: center; gap: 10px; }
-        .brand-logo { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, var(--blue), var(--purple)); display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 800; color: #fff; box-shadow: 0 8px 22px rgba(59, 130, 246, .35); }
-        .brand-text .name { font-size: 14px; font-weight: 650; display: flex; align-items: center; gap: 6px; }
-        .brand-text .sub { font-size: 10px; color: var(--text-faint); margin-top: 2px; }
-
-        .card {
-            background: var(--card); border: 1px solid var(--border); border-radius: 20px;
-            padding: 24px 18px 20px; backdrop-filter: blur(18px) saturate(140%);
-            -webkit-backdrop-filter: blur(18px) saturate(140%);
-            box-shadow: 0 30px 80px rgba(0, 0, 0, .55), 0 0 0 1px rgba(255, 255, 255, .02) inset;
-            position: relative; overflow: hidden; text-align: center;
-        }
-        .card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(59, 130, 246, .8), transparent); }
-
-        .status-orb { position: relative; width: 96px; height: 96px; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; }
-        .orb-ring { position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--border-strong); }
-        .orb-ring.outer { inset: -12px; border-style: dashed; opacity: .5; animation: rotateSlow 30s linear infinite; }
-        @keyframes rotateSlow { to { transform: rotate(360deg); } }
-        .orb-core { width: 74px; height: 74px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: 800; position: relative; z-index: 2; transition: all .4s cubic-bezier(.34, 1.56, .64, 1); }
-        .status-orb.loading .orb-core { background: linear-gradient(145deg, #1e293b, #0f172a); color: var(--text-dim); }
-        .status-orb.loading .orb-ring.inner { position: absolute; inset: 0; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--blue); border-right-color: rgba(59, 130, 246, .3); animation: spin 1s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .status-orb.active .orb-core { background: radial-gradient(circle at 30% 30%, rgba(16, 185, 129, .28), rgba(16, 185, 129, .06)); color: var(--green); box-shadow: 0 0 0 6px rgba(16, 185, 129, .08), 0 0 40px rgba(16, 185, 129, .28); }
-        .status-orb.active .orb-ring.inner { position: absolute; inset: -6px; border-radius: 50%; border: 1px solid var(--green); opacity: .55; animation: ripple 2.4s ease-out infinite; }
-        .status-orb.active .orb-ring.inner2 { position: absolute; inset: -6px; border-radius: 50%; border: 1px solid var(--green); opacity: .35; animation: ripple 2.4s ease-out infinite; animation-delay: 1.2s; }
-        @keyframes ripple { 0% { transform: scale(1); opacity: .55; } 100% { transform: scale(1.9); opacity: 0; } }
-        .status-orb.inactive .orb-core { background: radial-gradient(circle at 30% 30%, rgba(245, 158, 11, .25), rgba(245, 158, 11, .05)); color: var(--amber); }
-        .status-orb.error .orb-core { background: radial-gradient(circle at 30% 30%, rgba(239, 68, 68, .25), rgba(239, 68, 68, .05)); color: var(--red); }
-
-        h1 { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
-        .status-tag { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 1px; padding: 3px 10px; border-radius: 6px; margin-bottom: 10px; text-transform: uppercase; }
-        .status-tag.active { color: var(--green); background: var(--green-bg); border: 1px solid rgba(16, 185, 129, .22); }
-        .status-tag.inactive { color: var(--amber); background: var(--amber-bg); border: 1px solid rgba(245, 158, 11, .22); }
-        .status-tag.error { color: var(--red); background: var(--red-bg); border: 1px solid rgba(239, 68, 68, .22); }
-        .status-tag.loading { color: var(--text-dim); background: rgba(148, 163, 184, .08); border: 1px solid var(--border); }
-        .desc { font-size: 12.5px; line-height: 1.6; color: var(--text-dim); max-width: 300px; margin: 0 auto; }
-        .error-banner { margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: rgba(239, 68, 68, .08); border: 1px solid rgba(239, 68, 68, .25); font-size: 11.5px; line-height: 1.5; color: #fca5a5; text-align: left; display: none; }
-        .error-banner.show { display: block; }
-        .error-banner strong { color: #f87171; display: block; margin-bottom: 4px; font-size: 12px; }
-
-        .section-title { display: flex; align-items: center; gap: 10px; margin: 22px 0 12px; font-size: 10.5px; font-weight: 700; letter-spacing: 1px; color: var(--text-faint); text-transform: uppercase; }
-        .section-title::before, .section-title::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); }
-
-        .rate-panel {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 16px 14px;
-            background: rgba(15, 23, 42, .4);
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            margin-bottom: 12px;
-            gap: 24px;
-        }
-
-        .ring-wrap {
-            position: relative;
-            width: 90px;
-            height: 90px;
-            flex-shrink: 0;
-        }
-
-        .ring-svg {
-            transform: rotate(-90deg);
-        }
-
-        .ring-bg {
-            fill: none;
-            stroke: rgba(148, 163, 184, .10);
-            stroke-width: 8;
-        }
-
-        .ring-fg {
-            fill: none;
-            stroke: url(#ringGrad);
-            stroke-width: 8;
-            stroke-linecap: round;
-            transition: stroke-dashoffset 1s;
-        }
-
-        .ring-center {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .ring-value {
-            font-size: 18px;
-            font-weight: 800;
-            font-family: ui-monospace, monospace;
-            color: var(--green);
-            line-height: 1;
-        }
-
-        .ring-label {
-            font-size: 10px;
-            color: var(--text-faint);
-            margin-top: 4px;
-        }
-
-        .rate-info { text-align: left; flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
-        .rate-info-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 6px 0; }
-        .rate-info-row + .rate-info-row { border-top: 1px dashed rgba(148, 163, 184, .10); }
-        .rate-info-label { color: var(--text-faint); }
-        .rate-info-value { font-family: ui-monospace, monospace; font-size: 13px; font-weight: 700; }
-        .rate-info-value.amber { color: var(--amber); }
-        .rate-info-value.green { color: var(--green); }
-
-        .stat-cards {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-top: 6px;
-        }
-
-        .stat-card {
-            background: rgba(15, 23, 42, .45);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 12px 12px 10px;
-            text-align: left;
-            position: relative;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .stat-card-head {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            margin-bottom: 10px;
-        }
-
-        .stat-icon {
-            width: 20px;
-            height: 20px;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-        }
-
-        .stat-icon svg {
-            width: 11px;
-            height: 11px;
-            stroke-width: 2.4;
-            fill: none;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-        }
-
-        .stat-icon.blue {
-            background: rgba(59, 130, 246, .14);
-            color: var(--blue);
-        }
-
-        .stat-icon.purple {
-            background: rgba(139, 92, 246, .14);
-            color: var(--purple);
-        }
-
-        .stat-card-title {
-            font-size: 10.5px;
-            font-weight: 700;
-            letter-spacing: .5px;
-            color: var(--text-faint);
-            text-transform: uppercase;
-        }
-
-        .stat-big {
-            font-family: ui-monospace, monospace;
-            font-size: 22px;
-            font-weight: 800;
-            line-height: 1.1;
-            display: flex;
-            align-items: baseline;
-            gap: 3px;
-            flex-wrap: wrap;
-            word-break: break-all;
-            margin-bottom: 2px;
-        }
-
-        .stat-big .unit {
-            font-family: -apple-system, sans-serif;
-            font-size: 11px;
-            font-weight: 600;
-            color: var(--text-faint);
-        }
-
-        .stat-sub {
-            font-size: 11px;
-            color: var(--text-faint);
-            margin-top: 5px;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            font-weight: 600;
-        }
-
-        .stat-sub .dot {
-            width: 4px;
-            height: 4px;
-            border-radius: 50%;
-            background: currentColor;
-            opacity: .7;
-        }
-
-        .stat-sub.green {
-            color: var(--green);
-        }
-
-        .stat-sub.amber {
-            color: var(--amber);
-        }
-
-        .mini-bars {
-            display: flex;
-            align-items: flex-end;
-            gap: 2px;
-            height: 20px;
-            margin-top: auto;
-            padding-top: 10px;
-            opacity: .8;
-        }
-
-        .mini-bars span {
-            flex: 1;
-            border-radius: 1.5px;
-            min-height: 4px;
-            transition: height .6s ease;
-        }
-
-        .mini-bars.blue span {
-            background: linear-gradient(180deg, rgba(59, 130, 246, .8), rgba(59, 130, 246, .2));
-        }
-
-        .mini-bars.purple span {
-            background: linear-gradient(180deg, rgba(139, 92, 246, .8), rgba(139, 92, 246, .2));
-        }
-
-        .meta-table { margin-top: 16px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: rgba(15, 23, 42, .35); }
-        .meta-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; font-size: 12px; gap: 10px; }
-        .meta-row + .meta-row { border-top: 1px solid rgba(148, 163, 184, .06); }
-        .meta-label { color: var(--text-faint); display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-        .meta-label svg { width: 12px; height: 12px; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
-        .meta-value { font-family: ui-monospace, monospace; font-size: 12px; text-align: right; word-break: break-all; }
-        .meta-value.green { color: var(--green); font-weight: 600; }
-        .meta-value.dim { color: var(--text-dim); }
-
-        .actions { margin-top: 18px; display: flex; gap: 10px; }
-        .btn { flex: 1; padding: 12px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: all .2s; border: none; background: linear-gradient(135deg, var(--blue), var(--purple)); color: #fff; box-shadow: 0 6px 20px rgba(59, 130, 246, .3); }
-        .btn:active { transform: scale(.98); }
-        .btn svg { width: 14px; height: 14px; stroke-width: 2.2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
-        .btn.spinning svg { animation: spin 1s linear infinite; }
-
-        .footer { margin-top: 18px; text-align: center; font-size: 10.5px; color: var(--text-faint); line-height: 1.6; }
-        .fade-up { opacity: 0; transform: translateY(10px); animation: fadeUp .5s ease forwards; }
-        @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
-        .d1 { animation-delay: .05s; } .d2 { animation-delay: .1s; } .d3 { animation-delay: .15s; } .d4 { animation-delay: .2s; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>DNS 状态战报</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--panel2:#172239;--text:#edf3ff;--muted:#9aabc8;--line:#283653;--blue:#66a6ff;--green:#44d7a8;--red:#ff6b81;--yellow:#ffd166}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(ellipse at top,#182846 0,#0b1020 55%);color:var(--text);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh}
+main{width:min(1100px,100% - 28px);margin:28px auto 48px}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px}
+h1{font-size:clamp(24px,4vw,34px);margin:0;letter-spacing:.02em}
+.subtitle{color:var(--muted);margin-top:5px}
+.pill{border:1px solid var(--line);border-radius:999px;padding:7px 12px;color:var(--muted);font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0 22px}
+.card,.panel{background:linear-gradient(160deg,rgba(23,34,57,.96),rgba(16,24,42,.96));border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 28px #0002}
+.card{padding:16px}
+.label{font-size:13px;color:var(--muted)}
+.value{font-size:clamp(24px,4vw,34px);font-weight:750;line-height:1.25;margin:7px 0 3px;overflow-wrap:anywhere}
+.hint{font-size:12px;color:var(--muted)}
+.green{color:var(--green)}.red{color:var(--red)}.blue{color:var(--blue)}.yellow{color:var(--yellow)}
+.panel{padding:18px;margin-top:16px}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+h2{font-size:18px;margin:0}
+.muted{color:var(--muted)}
+.status{display:inline-flex;align-items:center;gap:7px;font-size:13px;border-radius:999px;padding:5px 10px;background:#202b40;color:var(--muted)}
+.dot{width:8px;height:8px;border-radius:50%;background:#8290a8}
+.dot.live{background:var(--green);box-shadow:0 0 10px #44d7a880}
+.ip-list{display:flex;gap:8px;flex-wrap:wrap}
+.ip{padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:#0e1728;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px;overflow-wrap:anywhere}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row strong{font-variant-numeric:tabular-nums}
+.notice{color:var(--muted);font-size:12px;margin-top:12px}
+.error{color:var(--red)}
+button{border:1px solid #3a4b6c;border-radius:10px;background:#213452;color:var(--text);padding:8px 12px;font:inherit;cursor:pointer}
+button:hover{background:#2a4268}
+footer{text-align:center;color:var(--muted);font-size:12px;margin-top:20px}
+@media(max-width:760px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.panel{padding:14px}main{width:calc(100% - 20px);margin-top:18px}}
+@media(max-width:380px){.grid{gap:8px}.card{padding:12px}.value{font-size:25px}}
+</style>
 </head>
 <body>
-
-    <div class="bg-layer">
-        <div class="bg-grid"></div>
-        <div class="bg-glow a"></div>
-        <div class="bg-glow b"></div>
+<main>
+  <header>
+    <div>
+      <h1>DNS 状态战报</h1>
+      <div class="subtitle">个人统计：最近 24 小时 · 全站统计：AdGuard Home 累计数据</div>
     </div>
-
-    <div class="wrap">
-        <div class="topbar fade-up">
-            <div class="brand">
-                <div class="brand-logo">D</div>
-                <div class="brand-text">
-                    <div class="name">DNS 检测 <span style="font-size:9px;color:var(--green);">V10.3</span></div>
-                    <div class="sub">双栈出口 IP 叠加版</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="card fade-up d1">
-            <div class="status-orb loading" id="statusOrb">
-                <div class="orb-ring outer"></div>
-                <div class="orb-ring inner"></div>
-                <div class="orb-ring inner2"></div>
-                <div class="orb-core" id="orbCore"></div>
-            </div>
-            <div class="status-tag loading" id="statusTag">检测中</div>
-            <h1 id="title">正在检测…</h1>
-            <p class="desc" id="desc">正在获取客户端 IP 并查询 DNS 记录</p>
-
-            <div class="error-banner" id="errorBanner"></div>
-
-            <div id="content" style="display:none;">
-                <div class="section-title fade-up d2">拦截概览 (<span id="actualSpan">最近24小时</span>)</div>
-                <div class="rate-panel fade-up d2">
-                    <div class="ring-wrap">
-                        <svg class="ring-svg" viewBox="0 0 104 104" width="100%" height="100%">
-                            <defs>
-                                <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
-                                    <stop offset="0%" stop-color="#10b981" />
-                                    <stop offset="100%" stop-color="#06b6d4" />
-                                </linearGradient>
-                            </defs>
-                            <circle class="ring-bg" cx="52" cy="52" r="44" />
-                            <circle class="ring-fg" id="ringFg" cx="52" cy="52" r="44" stroke-dasharray="276.46" stroke-dashoffset="276.46" />
-                        </svg>
-                        <div class="ring-center">
-                            <div class="ring-value" id="ringValue">—</div>
-                            <div class="ring-label">拦截率</div>
-                        </div>
-                    </div>
-                    <div class="rate-info">
-                        <div class="rate-info-row"><span class="rate-info-label">解析量</span><span class="rate-info-value"
-                                id="riQueries">—</span></div>
-                        <div class="rate-info-row"><span class="rate-info-label">拦截量(次)</span><span
-                                class="rate-info-value amber" id="riBlocked">—</span></div>
-                        <div class="rate-info-row"><span class="rate-info-label">放行量(次)</span><span
-                                class="rate-info-value green" id="riPassed">—</span></div>
-                    </div>
-                </div>
-
-                <div class="section-title fade-up d3">数据来源</div>
-                <div class="stat-cards fade-up d3">
-                    <div class="stat-card">
-                        <div class="stat-card-head">
-                            <div class="stat-icon blue">
-                                <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
-                            </div>
-                            <div class="stat-card-title">我的战报</div>
-                        </div>
-                        <div class="stat-big"><span id="pQueries">—</span><span class="unit">次</span></div>
-                        <div class="stat-sub amber"><span class="dot"></span>拦截 <span id="pBlocked">—</span> 次</div>
-                        <div class="stat-sub green"><span class="dot"></span>放行 <span id="pAllowList">—</span> 次</div>
-                        <div class="stat-sub amber"><span class="dot"></span>拦截 <span id="pBlocked">—</span> 次</div>
-                        <div class="stat-sub green"><span class="dot"></span>放行 <span id="pAllowList">—</span> 次</div>
-                        <div class="mini-bars blue" id="pBars"></div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-card-head">
-                            <div class="stat-icon purple">
-                                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>
-                            </div>
-                            <div class="stat-card-title">全站数据</div>
-                        </div>
-                        <div class="stat-big"><span id="gQueries">—</span><span class="unit">次</span></div>
-                        <div class="stat-sub amber"><span class="dot"></span>拦截 <span id="gBlocked">—</span> 次</div>
-                        <div class="stat-sub green"><span class="dot"></span>放行 <span id="gAllowList">—</span> 次</div>
-                        <div class="stat-sub amber"><span class="dot"></span>拦截 <span id="gBlocked">—</span> 次</div>
-                        <div class="stat-sub green"><span class="dot"></span>放行 <span id="gAllowList">—</span> 次</div>
-                        <div class="mini-bars purple" id="gBars"></div>
-                    </div>
-                </div>
-
-                <div class="meta-table fade-up d4">
-                    <div class="meta-row">
-                        <span class="meta-label"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></svg>客户端 IP</span>
-                        <span class="meta-value" id="clientIP">—</span>
-                    </div>
-                    <div class="meta-row">
-                        <span class="meta-label"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>检测时间</span>
-                        <span class="meta-value dim" id="checkedAt">—</span>
-                    </div>
-                    <div class="meta-row">
-                        <span class="meta-label"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>最近查询</span>
-                        <span class="meta-value green" id="lastSeen">—</span>
-                    </div>
-                    <div class="meta-row">
-                        <span class="meta-label"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14" /></svg>最早查询</span>
-                        <span class="meta-value dim" id="firstSeen">—</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="actions fade-up d4">
-                <button class="btn" id="retryBtn">
-                    <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /><path d="M3 21v-5h5" /></svg>
-                    重新检测
-                </button>
-            </div>
-        </div>
-
-        <div class="footer fade-up d4">
-            「我的战报」为最近 24 小时内本 IP 的统计<br>「全站数据」为 AdGuard Home 累计聚合
-        </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="pill" id="lastUpdated">等待首次更新…</span>
+      <button id="refreshBtn" type="button">立即刷新</button>
     </div>
+  </header>
 
-    <script>
-        const RING_C = 2 * Math.PI * 44;
-        const REFRESH_INTERVAL = 5000;
-        const STAT_PERIOD_HOURS = 24; 
-        const WINDOW_MINS = 30;
+  <section class="panel">
+    <div class="panel-head">
+      <h2>当前客户端</h2>
+      <span class="status"><span class="dot" id="dnsDot"></span><span id="dnsStatus">检测中</span></span>
+    </div>
+    <div class="ip-list" id="ipList"><span class="muted">正在获取客户端 IP…</span></div>
+    <div class="notice" id="clientNote">个人数据按检测到的客户端 IP 查询。</div>
+  </section>
 
-        let state = {
-            ips: [],
-            personal: { queries: 0, blocked: 0, allowed: 0, lastSeen: null, firstSeen: null },
-            global: { queries: 0, blocked: 0, allowed: 0 },
-            latestTime: 0,
-        };
+  <section class="panel">
+    <div class="panel-head">
+      <h2>个人战报</h2>
+      <span class="pill">最近 24 小时</span>
+    </div>
+    <div class="grid">
+      <div class="card"><div class="label">查询总数</div><div class="value blue" id="pTotal">—</div><div class="hint">24 小时内记录</div></div>
+      <div class="card"><div class="label">拦截数量</div><div class="value red" id="pBlocked">—</div><div class="hint">被拦截的查询</div></div>
+      <div class="card"><div class="label">白名单数量</div><div class="value green" id="pAllowList">—</div><div class="hint">白名单匹配记录</div></div>
+      <div class="card"><div class="label">放行数量</div><div class="value yellow" id="pAllowed">—</div><div class="hint">查询总数减去拦截数</div></div>
+    </div>
+    <div class="row"><span class="muted">最近一次查询</span><strong id="pLatest">—</strong></div>
+    <div class="row"><span class="muted">最近 30 分钟有查询</span><strong id="pActive">—</strong></div>
+    <div class="notice" id="personalNote">正在读取个人查询日志…</div>
+  </section>
 
-        const el = {
-            statusOrb: document.getElementById('statusOrb'), orbCore: document.getElementById('orbCore'),
-            statusTag: document.getElementById('statusTag'), title: document.getElementById('title'), desc: document.getElementById('desc'),
-            errorBanner: document.getElementById('errorBanner'), content: document.getElementById('content'),
-            ringFg: document.getElementById('ringFg'), ringValue: document.getElementById('ringValue'),
-            riQueries: document.getElementById('riQueries'), riBlocked: document.getElementById('riBlocked'),
-            riPassed: document.getElementById('riPassed'), 
-            pQueries: document.getElementById('pQueries'), pBlocked: document.getElementById('pBlocked'), pAllowList: document.getElementById('pAllowList'),
-            pBars: document.getElementById('pBars'),
-            gQueries: document.getElementById('gQueries'), gBlocked: document.getElementById('gBlocked'), gAllowList: document.getElementById('gAllowList'),
-            gBars: document.getElementById('gBars'), 
-            clientIP: document.getElementById('clientIP'),
-            checkedAt: document.getElementById('checkedAt'), lastSeen: document.getElementById('lastSeen'),
-            firstSeen: document.getElementById('firstSeen'), actualSpan: document.getElementById('actualSpan'),
-            retryBtn: document.getElementById('retryBtn'),
-        };
+  <section class="panel">
+    <div class="panel-head">
+      <h2>全站战报</h2>
+      <span class="pill">AdGuard Home 累计统计</span>
+    </div>
+    <div class="grid">
+      <div class="card"><div class="label">全站查询总数</div><div class="value blue" id="gTotal">—</div><div class="hint">服务端累计数据</div></div>
+      <div class="card"><div class="label">全站拦截数量</div><div class="value red" id="gBlocked">—</div><div class="hint">服务端累计数据</div></div>
+      <div class="card"><div class="label">全站白名单数量</div><div class="value green" id="gAllowList">—</div><div class="hint">服务端累计数据</div></div>
+      <div class="card"><div class="label">全站放行数量</div><div class="value yellow" id="gAllowed">—</div><div class="hint">总查询数减去拦截数</div></div>
+    </div>
+    <div class="notice" id="globalNote">正在读取全站统计…</div>
+  </section>
+  <footer>每 5 秒自动刷新 · 个人日志仅统计最近 24 小时</footer>
+</main>
+<script>
+"use strict";
 
-        function parseTime(iso) {
-            if (!iso) return 0;
-            const cleanIso = String(iso).replace(/(\.\d{3})\d+/, '$1');
-            const t = new Date(cleanIso).getTime();
-            return isNaN(t) ? new Date(iso).getTime() : t;
-        }
-        function cleanIP(ip) { return (ip || '').replace(/^::ffff:/, '').trim(); }
-        function fmtNum(n) { return (n === null || n === undefined || isNaN(n)) ? '—' : Number(n).toLocaleString('en-US'); }
-        function formatTime(iso) {
-            if (!iso) return '—';
-            const cleanIso = String(iso).replace(/(\.\d{3})\d+/, '$1');
-            const d = new Date(cleanIso);
-            if (isNaN(d.getTime())) return '—';
-            return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`;
-        }
+const STAT_PERIOD_HOURS = 24;
+const WINDOW_MINS = 30;
+const REFRESH_INTERVAL = 5000;
+const PAGE_SIZE = 1000;
+const MAX_PAGES_PER_STATUS = 10000;
+const $ = id => document.getElementById(id);
+let refreshBusy = false;
 
-        function showError(html) { el.errorBanner.innerHTML = html; el.errorBanner.classList.add('show'); }
-        function hideError() { el.errorBanner.classList.remove('show'); el.errorBanner.innerHTML = ''; }
+function fmt(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toLocaleString("zh-CN") : "—";
+}
+function setText(id, value) { const el = $(id); if (el) el.textContent = value; }
+function timeText(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString("zh-CN", {hour12:false});
+}
+function parseDate(entry) {
+  const raw = entry?.time ?? entry?.Time ?? entry?.timestamp ?? entry?.Timestamp;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+function questionName(entry) {
+  return entry?.question?.name ?? entry?.Question?.Name ?? entry?.question?.Name ?? "";
+}
+function clientName(entry) {
+  return entry?.client ?? entry?.Client ?? entry?.client_ip ?? entry?.ClientIP ?? "";
+}
+function entryKey(entry) {
+  const d = parseDate(entry);
+  return [d ? d.toISOString() : "", questionName(entry).toLowerCase(), clientName(entry), entry?.question?.type ?? entry?.Question?.Type ?? ""].join("|");
+}
+function isBlocked(entry) {
+  const result = entry?.result ?? entry?.Result ?? {};
+  return Boolean(result?.isFiltered ?? result?.IsFiltered ?? entry?.is_filtered ?? entry?.IsFiltered);
+}
+function isWhitelisted(entry) {
+  const result = entry?.result ?? entry?.Result ?? {};
+  const reason = String(result?.reason ?? result?.Reason ?? entry?.reason ?? entry?.Reason ?? "").toLowerCase();
+  return reason.includes("whitelist") || reason.includes("white_list") || reason.includes("白名单");
+}
+function inWindow(entry, startMs, endMs) {
+  const d = parseDate(entry);
+  return d && d.getTime() >= startMs && d.getTime() <= endMs;
+}
+async function api(path) {
+  const response = await fetch(path, {cache:"no-store", headers:{"Accept":"application/json"}});
+  if (!response.ok) throw new Error(`${path}：HTTP ${response.status}`);
+  return response.json();
+}
+async function getClientIps() {
+  const data = await api("/api/client-ip");
+  const raw = Array.isArray(data) ? data : (data.ips ?? data.client_ips ?? data.ip ?? []);
+  const ips = (Array.isArray(raw) ? raw : [raw]).map(v => String(v).trim()).filter(Boolean);
+  return [...new Set(ips)];
+}
 
-        function renderBars(container, count = 12) {
-            container.innerHTML = '';
-            for (let i = 0; i < count; i++) {
-                const s = document.createElement('span');
-                s.style.height = Math.floor(Math.random() * 80 + 20) + '%';
-                container.appendChild(s);
-            }
-        }
+/*
+ * 分页读取单一状态的查询日志。使用响应里的 oldest 作为下一页游标；
+ * 若服务端未返回游标，则退化为按当前页最早时间继续。
+ */
+async function fetchQuerylogPage(search, status, olderThan) {
+  const params = new URLSearchParams({limit:String(PAGE_SIZE), response_status:status});
+  if (search) params.set("search", search);
+  if (olderThan) params.set("older_than", olderThan);
+  return api("/control/querylog?" + params.toString());
+}
+function extractData(json) {
+  if (Array.isArray(json)) return json;
+  if (Array.isArray(json?.data)) return json.data;
+  if (Array.isArray(json?.Data)) return json.Data;
+  if (Array.isArray(json?.result)) return json.result;
+  return [];
+}
+function getOldestCursor(json, entries) {
+  const cursor = json?.oldest ?? json?.Oldest ?? json?.oldest_timestamp;
+  if (cursor) return String(cursor);
+  let oldest = null;
+  for (const entry of entries) {
+    const d = parseDate(entry);
+    if (d && (!oldest || d < oldest)) oldest = d;
+  }
+  return oldest ? oldest.toISOString() : null;
+}
+async function fetchAllStatusForIp(ip, status, startMs, endMs) {
+  const found = [];
+  const seenCursors = new Set();
+  let cursor = null;
+  for (let page = 0; page < MAX_PAGES_PER_STATUS; page++) {
+    const json = await fetchQuerylogPage(ip, status, cursor);
+    const rows = extractData(json);
+    if (!rows.length) break;
+    for (const row of rows) {
+      if (inWindow(row, startMs, endMs)) found.push(row);
+    }
 
-        function renderRing(q, b) {
-            const rate = q > 0 ? b / q : 0;
-            el.ringFg.style.strokeDashoffset = RING_C * (1 - Math.min(rate, 1));
-            el.ringValue.textContent = q > 0 ? (rate * 100).toFixed(1) + '%' : '—';
-        }
+    const next = getOldestCursor(json, rows);
+    if (!next || next === cursor || seenCursors.has(next)) break;
+    seenCursors.add(next);
+    cursor = next;
 
-        async function fetchAllClientIPs() {
-            const r = await fetch('/api/client-ip', { cache: 'no-store' });
-            if (!r.ok) throw new Error('client-ip HTTP ' + r.status);
-            const j = await r.json();
-            return j.ips || [];
-        }
+    const oldestDate = rows.map(parseDate).filter(Boolean).sort((a,b)=>a-b)[0];
+    if (oldestDate && oldestDate.getTime() < startMs) break;
+    if (rows.length < PAGE_SIZE) break;
+  }
+  return found;
+}
+async function fetchPersonal(ips) {
+  const now = Date.now();
+  const start = now - STAT_PERIOD_HOURS * 60 * 60 * 1000;
+  const end = now;
+  const allRows = [];
+  const blockedRows = [];
+  const whiteRows = [];
+  const errors = [];
 
-        // 核心：利用双栈真实 IP 并发查询叠加
-        async function fetchPersonal(ips) {
-            const periodStart = Date.now() - STAT_PERIOD_HOURS * 3600 * 1000;
+  for (const ip of ips) {
+    const jobs = [
+      fetchAllStatusForIp(ip, "all", start, end).then(v=>allRows.push(...v)).catch(e=>errors.push(`${ip} 全部记录：${e.message}`)),
+      fetchAllStatusForIp(ip, "blocked", start, end).then(v=>blockedRows.push(...v)).catch(e=>errors.push(`${ip} 拦截记录：${e.message}`)),
+      fetchAllStatusForIp(ip, "whitelisted", start, end).then(v=>whiteRows.push(...v)).catch(e=>errors.push(`${ip} 白名单记录：${e.message}`))
+    ];
+    await Promise.all(jobs);
+  }
 
-            const fetchLog = async (searchIp, status) => {
-                const url = `/control/querylog?search=${encodeURIComponent(searchIp)}&limit=3000&response_status=${status}`;
-                try {
-                    const r = await fetch(url, { cache: 'no-store' });
-                    if (r.status === 401) throw new Error('AUTH');
-                    if (!r.ok) return { data: [] };
-                    return await r.json();
-                } catch (e) {
-                    return { data: [] };
-                }
-            };
+  const dedupe = rows => [...new Map(rows.map(row=>[entryKey(row),row])).values()];
+  const all = dedupe(allRows).filter(row=>inWindow(row,start,end));
+  const blocked = dedupe(blockedRows).filter(row=>inWindow(row,start,end));
+  const white = dedupe(whiteRows).filter(row=>inWindow(row,start,end));
+  const latest = all.map(parseDate).filter(Boolean).sort((a,b)=>b-a)[0];
+  const active = all.some(row=>inWindow(row, now-WINDOW_MINS*60*1000, now));
 
-            const promises = [];
-            for (const ip of ips) {
-                promises.push(fetchLog(ip, 'all'));
-                promises.push(fetchLog(ip, 'blocked'));
-                promises.push(fetchLog(ip, 'whitelisted'));
-            }
-
-            const results = await Promise.all(promises);
-
-            let allList = [], blockedList = [], whiteList = [];
-            for (let i = 0; i < results.length; i += 3) {
-                allList = allList.concat(results[i].data || []);
-                blockedList = blockedList.concat(results[i + 1].data || []);
-                whiteList = whiteList.concat(results[i + 2].data || []);
-            }
-
-            // 多 IP 去重合并
-            const unique = (list) => {
-                const map = new Map();
-                for (const e of list) {
-                    const key = (e.Time || e.time) + (e.Question?.Name || '');
-                    if (!map.has(key)) map.set(key, e);
-                }
-                return Array.from(map.values());
-            };
-
-            const allU = unique(allList);
-            const blockedU = unique(blockedList);
-            const whiteU = unique(whiteList);
-
-            function calc24h(list) {
-                let count = 0;
-                const sorted = list.sort((a, b) => parseTime(b.Time || b.time) - parseTime(a.Time || a.time));
-                for (const e of sorted) {
-                    const t = parseTime(e.Time || e.time);
-                    if (t < periodStart) break;
-                    count++;
-                }
-                return { count, sorted };
-            }
-
-            const resAll = calc24h(allU);
-            const resBlocked = calc24h(blockedU);
-            const resWhite = calc24h(whiteU);
-
-            let lastSeen = null, firstSeen = null;
-            if (resAll.sorted.length > 0) {
-                lastSeen = resAll.sorted[0].Time || resAll.sorted[0].time;
-                firstSeen = resAll.sorted[resAll.sorted.length - 1].Time || resAll.sorted[resAll.sorted.length - 1].time;
-            }
-
-            state.personal = {
-                queries: resAll.count,
-                blocked: resBlocked.count,
-                allowed: resWhite.count,
-                lastSeen,
-                firstSeen
-            };
-
-            state.latestTime = lastSeen ? parseTime(lastSeen) : Date.now();
-            return state.personal;
-        }
-
-        async function fetchGlobal() {
-            const r = await fetch('/control/stats', { cache: 'no-store' });
-            if (r.status === 401) throw new Error('AUTH');
-            if (!r.ok) throw new Error('stats HTTP ' + r.status);
-            const j = await r.json();
-            const gTotal = j.num_dns_queries || 0;
-            const gBlocked = j.num_blocked_filtering || 0;
-            state.global = { queries: gTotal, blocked: gBlocked, allowed: gTotal - gBlocked };
-        }
-
-        function updateUI() {
-            const p = state.personal, g = state.global;
-            renderRing(p.queries, p.blocked);
-
-            el.riQueries.textContent = fmtNum(p.queries);
-            el.riBlocked.textContent = fmtNum(p.blocked);
-            el.riPassed.textContent = fmtNum(p.allowed);
-
-            el.pQueries.textContent = fmtNum(p.queries);
-            el.pBlocked.textContent = fmtNum(p.blocked);
-            el.pAllowList.textContent = fmtNum(p.allowed);
-
-            el.gQueries.textContent = fmtNum(g.queries);
-            el.gBlocked.textContent = fmtNum(g.blocked);
-            el.gAllowList.textContent = fmtNum(g.allowed);
-
-            // 把拿到的当前真实双栈 IP 都显示出来
-            el.clientIP.textContent = state.ips.join(' / ');
-            el.checkedAt.textContent = formatTime(new Date().toISOString());
-
-            if (p.lastSeen) el.lastSeen.textContent = formatTime(p.lastSeen);
-            if (p.firstSeen) el.firstSeen.textContent = formatTime(p.firstSeen);
-
-            if (p.firstSeen) {
-                const spanHours = (Date.now() - parseTime(p.firstSeen)) / (1000 * 3600);
-                el.actualSpan.textContent = `最近 ${spanHours.toFixed(1)} 小时`;
-            }
-            renderBars(el.pBars);
-            renderBars(el.gBars);
-        }
-
-        function updateNumbersOnly() {
-            const p = state.personal, g = state.global;
-            renderRing(p.queries, p.blocked);
-
-            el.riQueries.textContent = fmtNum(p.queries);
-            el.riBlocked.textContent = fmtNum(p.blocked);
-            el.riPassed.textContent = fmtNum(p.allowed);
-
-            el.pQueries.textContent = fmtNum(p.queries);
-            el.pBlocked.textContent = fmtNum(p.blocked);
-            el.pAllowList.textContent = fmtNum(p.allowed);
-
-            el.gQueries.textContent = fmtNum(g.queries);
-            el.gBlocked.textContent = fmtNum(g.blocked);
-            el.gAllowList.textContent = fmtNum(g.allowed);
-
-            el.checkedAt.textContent = formatTime(new Date().toISOString());
-            if (p.lastSeen) el.lastSeen.textContent = formatTime(p.lastSeen);
-            if (p.firstSeen) el.firstSeen.textContent = formatTime(p.firstSeen);
-            if (p.firstSeen) el.firstSeen.textContent = formatTime(p.firstSeen);
-        }
-
-        function render(status, message) {
-            const s = status;
-            el.statusOrb.className = 'status-orb ' + s;
-            el.orbCore.textContent = s === 'active' ? '✓' : (s === 'error' ? '✕' : (s === 'inactive' ? '!' : ''));
-            el.statusTag.className = 'status-tag ' + s;
-            el.statusTag.textContent = s === 'active' ? '已连接' : (s === 'error' ? '出错' : (s === 'inactive' ? '未检测' : '检测中'));
-
-            if (message) el.desc.textContent = message;
-
-            if (s === 'loading' || s === 'error') {
-                el.content.style.display = 'none';
-                if (s === 'loading') hideError();
-                return;
-            }
-            el.content.style.display = 'block';
-        }
-
-        async function check() {
-            hideError();
-            el.retryBtn.classList.add('spinning');
-            render('loading');
-            el.title.textContent = '正在获取 IP…';
-
-            try {
-                state.ips = await fetchAllClientIPs();
-
-                el.title.textContent = '正在检测…';
-                await Promise.all([fetchPersonal(state.ips), fetchGlobal()]);
-
-                const threshold = Date.now() - WINDOW_MINS * 60000;
-                const recentlyActive = state.personal.lastSeen && parseTime(state.personal.lastSeen) >= threshold;
-
-                if (state.personal.queries > 0 && recentlyActive) {
-                    render('active', `已检测到你的设备在最近 ${WINDOW_MINS} 分钟内使用本 DNS 解析，广告拦截已启用`);
-                    el.title.textContent = 'DNS 正在生效';
-                } else {
-                    render('inactive', `最近 ${WINDOW_MINS} 分钟内未检测到你的设备使用本 DNS 解析`);
-                    el.title.textContent = '未检测到使用记录';
-                }
-
-                updateUI();
-            } catch (err) {
-                render('error', '无法完成检测');
-                el.title.textContent = '检测失败';
-
-                let tip = '';
-                if (err.message === 'AUTH') {
-                    tip = `<strong>认证失败</strong>请检查后端代码中账号密码是否正确。`;
-                } else if (/querylog|stats|client-ip/.test(err.message)) {
-                    tip = `<strong>API 请求失败</strong>${err.message}<br>请确认网络是否通畅。`;
-                } else {
-                    tip = `<strong>请求失败</strong>${err.message}`;
-                }
-                showError(tip);
-            } finally {
-                setTimeout(() => el.retryBtn.classList.remove('spinning'), 400);
-            }
-        }
-
-        let isRefreshing = false;
-        async function silentRefresh() {
-            if (isRefreshing || state.ips.length === 0) return;
-            isRefreshing = true;
-            try {
-                await Promise.all([fetchPersonal(state.ips), fetchGlobal()]);
-                updateNumbersOnly();
-            } catch (err) {
-                console.warn('静默刷新失败', err);
-            } finally {
-                isRefreshing = false;
-            }
-        }
-
-        el.retryBtn.addEventListener('click', check);
-
-        check();
-        setInterval(silentRefresh, REFRESH_INTERVAL);
-    </script>
+  setText("pTotal", fmt(all.length));
+  setText("pBlocked", fmt(blocked.length));
+  setText("pAllowList", fmt(white.length));
+  setText("pAllowed", fmt(Math.max(0, all.length-blocked.length)));
+  setText("pLatest", latest ? timeText(latest.toISOString()) : "暂无记录");
+  setText("pActive", active ? "是" : "否");
+  $("pActive").className = active ? "green" : "muted";
+  setText("personalNote", errors.length
+    ? `部分查询失败：${errors.slice(0,3).join("；")}${errors.length>3?"…":""}`
+    : `已读取 ${ips.length} 个客户端地址；查询日志分页读取，统计区间 ${timeText(new Date(start).toISOString())} 至 ${timeText(new Date(end).toISOString())}。`);
+  $("personalNote").className = "notice" + (errors.length ? " error" : "");
+  setText("dnsStatus", active ? "DNS 活跃" : "最近 30 分钟无查询");
+  $("dnsDot").className = "dot" + (active ? " live" : "");
+}
+async function fetchGlobal() {
+  const json = await api("/control/stats");
+  const stats = json?.stats ?? json?.Stats ?? json;
+  const total = Number(stats?.num_dns_queries ?? stats?.numQueries ?? stats?.total_queries ?? stats?.total ?? 0);
+  const blocked = Number(stats?.num_blocked_filtering ?? stats?.blocked_filtering ?? stats?.blocked ?? 0);
+  const white = Number(stats?.num_replaced_safebrowsing ?? stats?.whitelisted ?? stats?.allowlist ?? 0);
+  setText("gTotal", fmt(total));
+  setText("gBlocked", fmt(blocked));
+  setText("gAllowList", fmt(white));
+  setText("gAllowed", fmt(Math.max(0,total-blocked)));
+  setText("globalNote", "全站统计由 AdGuard Home /control/stats 接口提供；数值范围取决于服务端统计周期与配置。");
+}
+async function refresh() {
+  if (refreshBusy) return;
+  refreshBusy = true;
+  $("refreshBtn").disabled = true;
+  try {
+    const ips = await getClientIps();
+    $("ipList").replaceChildren();
+    if (ips.length) {
+      for (const ip of ips) {
+        const el = document.createElement("span");
+        el.className = "ip";
+        el.textContent = ip;
+        $("ipList").appendChild(el);
+      }
+    } else {
+      $("ipList").textContent = "未检测到客户端 IP";
+    }
+    if (!ips.length) {
+      ["pTotal","pBlocked","pAllowList","pAllowed"].forEach(id=>setText(id,"0"));
+      setText("pLatest","暂无记录");
+      setText("pActive","否");
+      setText("personalNote","未检测到客户端 IP，无法查询个人记录。");
+      setText("dnsStatus","无法判断");
+      $("dnsDot").className = "dot";
+    } else {
+      await fetchPersonal(ips);
+    }
+  } catch (e) {
+    setText("personalNote", "个人数据读取失败：" + e.message);
+    $("personalNote").className = "notice error";
+    setText("dnsStatus","检测失败");
+    $("dnsDot").className = "dot";
+  }
+  try {
+    await fetchGlobal();
+  } catch (e) {
+    setText("globalNote", "全站数据读取失败：" + e.message);
+    $("globalNote").className = "notice error";
+  }
+  setText("lastUpdated","更新于 " + new Date().toLocaleTimeString("zh-CN",{hour12:false}));
+  $("refreshBtn").disabled = false;
+  refreshBusy = false;
+}
+$("refreshBtn").addEventListener("click", refresh);
+refresh();
+setInterval(refresh, REFRESH_INTERVAL);
+</script>
 </body>
 </html>
