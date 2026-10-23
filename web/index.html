@@ -75,8 +75,8 @@ footer{text-align:center;color:var(--muted);font-size:12px;margin-top:20px}
     <div class="grid">
       <div class="card"><div class="label">查询总数</div><div class="value blue" id="pTotal">—</div><div class="hint">24 小时内记录</div></div>
       <div class="card"><div class="label">拦截数量</div><div class="value red" id="pBlocked">—</div><div class="hint">被拦截的查询</div></div>
-      <div class="card"><div class="label">白名单数量</div><div class="value green" id="pAllowList">—</div><div class="hint">白名单匹配记录</div></div>
-      <div class="card"><div class="label">放行数量</div><div class="value yellow" id="pAllowed">—</div><div class="hint">查询总数减去拦截数</div></div>
+      <div class="card"><div class="label">放行数量</div><div class="value green" id="pAllowList">—</div><div class="hint">AdGuard Home 白名单放行记录</div></div>
+      <div class="card"><div class="label">未处理数量</div><div class="value yellow" id="pAllowed">—</div><div class="hint">查询总数 − 拦截数量 − 放行数量</div></div>
     </div>
     <div class="row"><span class="muted">最近一次查询</span><strong id="pLatest">—</strong></div>
     <div class="row"><span class="muted">最近 30 分钟有查询</span><strong id="pActive">—</strong></div>
@@ -91,8 +91,8 @@ footer{text-align:center;color:var(--muted);font-size:12px;margin-top:20px}
     <div class="grid">
       <div class="card"><div class="label">全站查询总数</div><div class="value blue" id="gTotal">—</div><div class="hint">服务端累计数据</div></div>
       <div class="card"><div class="label">全站拦截数量</div><div class="value red" id="gBlocked">—</div><div class="hint">服务端累计数据</div></div>
-      <div class="card"><div class="label">全站白名单数量</div><div class="value green" id="gAllowList">—</div><div class="hint">服务端累计数据</div></div>
-      <div class="card"><div class="label">全站放行数量</div><div class="value yellow" id="gAllowed">—</div><div class="hint">总查询数减去拦截数</div></div>
+      <div class="card"><div class="label">全站放行数量</div><div class="value green" id="gAllowList">—</div><div class="hint">根据 querylog 中的白名单放行记录统计</div></div>
+      <div class="card"><div class="label">全站未处理数量</div><div class="value yellow" id="gAllowed">—</div><div class="hint">查询总数 − 拦截数量 − 放行数量</div></div>
     </div>
     <div class="notice" id="globalNote">正在读取全站统计…</div>
   </section>
@@ -251,13 +251,13 @@ async function fetchPersonal(ips) {
   setText("pTotal", fmt(all.length));
   setText("pBlocked", fmt(blocked.length));
   setText("pAllowList", fmt(white.length));
-  setText("pAllowed", fmt(Math.max(0, all.length-blocked.length)));
+  setText("pAllowed", fmt(Math.max(0, all.length-blocked.length-white.length)));
   setText("pLatest", latest ? timeText(latest.toISOString()) : "暂无记录");
   setText("pActive", active ? "是" : "否");
   $("pActive").className = active ? "green" : "muted";
   setText("personalNote", errors.length
     ? `部分查询失败：${errors.slice(0,3).join("；")}${errors.length>3?"…":""}`
-    : `已读取 ${ips.length} 个客户端地址；查询日志分页读取，统计区间 ${timeText(new Date(start).toISOString())} 至 ${timeText(new Date(end).toISOString())}。`);
+    : `已读取 ${ips.length} 个客户端地址；放行量按白名单记录计算，未处理量 = 查询总数 − 拦截量 − 放行量。统计区间 ${timeText(new Date(start).toISOString())} 至 ${timeText(new Date(end).toISOString())}。`);
   $("personalNote").className = "notice" + (errors.length ? " error" : "");
   setText("dnsStatus", active ? "DNS 活跃" : "最近 30 分钟无查询");
   $("dnsDot").className = "dot" + (active ? " live" : "");
@@ -267,12 +267,19 @@ async function fetchGlobal() {
   const stats = json?.stats ?? json?.Stats ?? json;
   const total = Number(stats?.num_dns_queries ?? stats?.numQueries ?? stats?.total_queries ?? stats?.total ?? 0);
   const blocked = Number(stats?.num_blocked_filtering ?? stats?.blocked_filtering ?? stats?.blocked ?? 0);
-  const white = Number(stats?.num_replaced_safebrowsing ?? stats?.whitelisted ?? stats?.allowlist ?? 0);
+
+  // /control/stats 的 num_replaced_safebrowsing 并不是白名单放行总数，
+  // 因此全站放行量改为直接分页统计 querylog 的 whitelisted 状态。
+  // 该数量受 AdGuard Home 查询日志保留策略影响；不再把错误的 stats 字段当白名单数。
+  const whiteRows = await fetchAllStatusForIp("", "whitelisted", 0, Date.now());
+  const passed = whiteRows.length;
+  const unprocessed = Math.max(0, total - blocked - passed);
+
   setText("gTotal", fmt(total));
   setText("gBlocked", fmt(blocked));
-  setText("gAllowList", fmt(white));
-  setText("gAllowed", fmt(Math.max(0,total-blocked)));
-  setText("globalNote", "全站统计由 AdGuard Home /control/stats 接口提供；数值范围取决于服务端统计周期与配置。");
+  setText("gAllowList", fmt(passed));
+  setText("gAllowed", fmt(unprocessed));
+  setText("globalNote", `全站查询量和拦截量来自 AdGuard Home 统计接口；放行量来自 querylog 中可读取到的白名单记录（${fmt(passed)} 条），受查询日志保留策略影响。未处理量 = 查询量 − 拦截量 − 放行量。`);
 }
 async function refresh() {
   if (refreshBusy) return;
