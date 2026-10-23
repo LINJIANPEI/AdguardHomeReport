@@ -1,338 +1,597 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
-<title>DNS 状态战报</title>
-<style>
-:root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--panel2:#172239;--text:#edf3ff;--muted:#9aabc8;--line:#283653;--blue:#66a6ff;--green:#44d7a8;--red:#ff6b81;--yellow:#ffd166}
-*{box-sizing:border-box}
-body{margin:0;background:radial-gradient(ellipse at top,#182846 0,#0b1020 55%);color:var(--text);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh}
-main{width:min(1100px,100% - 28px);margin:28px auto 48px}
-header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px}
-h1{font-size:clamp(24px,4vw,34px);margin:0;letter-spacing:.02em}
-.subtitle{color:var(--muted);margin-top:5px}
-.pill{border:1px solid var(--line);border-radius:999px;padding:7px 12px;color:var(--muted);font-size:13px}
-.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0 22px}
-.card,.panel{background:linear-gradient(160deg,rgba(23,34,57,.96),rgba(16,24,42,.96));border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 28px #0002}
-.card{padding:16px}
-.label{font-size:13px;color:var(--muted)}
-.value{font-size:clamp(24px,4vw,34px);font-weight:750;line-height:1.25;margin:7px 0 3px;overflow-wrap:anywhere}
-.hint{font-size:12px;color:var(--muted)}
-.green{color:var(--green)}.red{color:var(--red)}.blue{color:var(--blue)}.yellow{color:var(--yellow)}
-.panel{padding:18px;margin-top:16px}
-.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
-h2{font-size:18px;margin:0}
-.muted{color:var(--muted)}
-.status{display:inline-flex;align-items:center;gap:7px;font-size:13px;border-radius:999px;padding:5px 10px;background:#202b40;color:var(--muted)}
-.dot{width:8px;height:8px;border-radius:50%;background:#8290a8}
-.dot.live{background:var(--green);box-shadow:0 0 10px #44d7a880}
-.ip-list{display:flex;gap:8px;flex-wrap:wrap}
-.ip{padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:#0e1728;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px;overflow-wrap:anywhere}
-.row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}
-.row:last-child{border-bottom:0}
-.row strong{font-variant-numeric:tabular-nums}
-.notice{color:var(--muted);font-size:12px;margin-top:12px}
-.error{color:var(--red)}
-button{border:1px solid #3a4b6c;border-radius:10px;background:#213452;color:var(--text);padding:8px 12px;font:inherit;cursor:pointer}
-button:hover{background:#2a4268}
-footer{text-align:center;color:var(--muted);font-size:12px;margin-top:20px}
-@media(max-width:760px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.panel{padding:14px}main{width:calc(100% - 20px);margin-top:18px}}
-@media(max-width:380px){.grid{gap:8px}.card{padding:12px}.value{font-size:25px}}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>DNS 状态战报</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1020;
+      --panel: #121a2d;
+      --panel2: #172239;
+      --text: #edf3ff;
+      --muted: #9aabc8;
+      --line: #283653;
+      --blue: #66a6ff;
+      --green: #44d7a8;
+      --red: #ff6b81;
+      --yellow: #ffd166
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    body {
+      margin: 0;
+      background: radial-gradient(ellipse at top, #182846 0, #0b1020 55%);
+      color: var(--text);
+      font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+      min-height: 100vh
+    }
+
+    main {
+      width: min(1100px, 100% - 28px);
+      margin: 28px auto 48px
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 22px
+    }
+
+    h1 {
+      font-size: clamp(24px, 4vw, 34px);
+      margin: 0;
+      letter-spacing: .02em
+    }
+
+    .subtitle {
+      color: var(--muted);
+      margin-top: 5px
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 7px 12px;
+      color: var(--muted);
+      font-size: 13px
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 14px 0 22px
+    }
+
+    .card,
+    .panel {
+      background: linear-gradient(160deg, rgba(23, 34, 57, .96), rgba(16, 24, 42, .96));
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 10px 28px #0002
+    }
+
+    .card {
+      padding: 16px
+    }
+
+    .label {
+      font-size: 13px;
+      color: var(--muted)
+    }
+
+    .value {
+      font-size: clamp(24px, 4vw, 34px);
+      font-weight: 750;
+      line-height: 1.25;
+      margin: 7px 0 3px;
+      overflow-wrap: anywhere
+    }
+
+    .hint {
+      font-size: 12px;
+      color: var(--muted)
+    }
+
+    .green {
+      color: var(--green)
+    }
+
+    .red {
+      color: var(--red)
+    }
+
+    .blue {
+      color: var(--blue)
+    }
+
+    .yellow {
+      color: var(--yellow)
+    }
+
+    .panel {
+      padding: 18px;
+      margin-top: 16px
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px
+    }
+
+    h2 {
+      font-size: 18px;
+      margin: 0
+    }
+
+    .muted {
+      color: var(--muted)
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 13px;
+      border-radius: 999px;
+      padding: 5px 10px;
+      background: #202b40;
+      color: var(--muted)
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #8290a8
+    }
+
+    .dot.live {
+      background: var(--green);
+      box-shadow: 0 0 10px #44d7a880
+    }
+
+    .ip-list {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap
+    }
+
+    .ip {
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #0e1728;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 13px;
+      overflow-wrap: anywhere
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 11px 0;
+      border-bottom: 1px solid var(--line)
+    }
+
+    .row:last-child {
+      border-bottom: 0
+    }
+
+    .row strong {
+      font-variant-numeric: tabular-nums
+    }
+
+    .notice {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 12px
+    }
+
+    .error {
+      color: var(--red)
+    }
+
+    button {
+      border: 1px solid #3a4b6c;
+      border-radius: 10px;
+      background: #213452;
+      color: var(--text);
+      padding: 8px 12px;
+      font: inherit;
+      cursor: pointer
+    }
+
+    button:hover {
+      background: #2a4268
+    }
+
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 20px
+    }
+
+    @media(max-width:760px) {
+      .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr))
+      }
+
+      .panel {
+        padding: 14px
+      }
+
+      main {
+        width: calc(100% - 20px);
+        margin-top: 18px
+      }
+    }
+
+    @media(max-width:380px) {
+      .grid {
+        gap: 8px
+      }
+
+      .card {
+        padding: 12px
+      }
+
+      .value {
+        font-size: 25px
+      }
+    }
+  </style>
 </head>
+
 <body>
-<main>
-  <header>
-    <div>
-      <h1>DNS 状态战报</h1>
-      <div class="subtitle">个人统计：最近 24 小时 · 全站统计：AdGuard Home 累计数据</div>
-    </div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <span class="pill" id="lastUpdated">等待首次更新…</span>
-      <button id="refreshBtn" type="button">立即刷新</button>
-    </div>
-  </header>
+  <main>
+    <header>
+      <div>
+        <h1>DNS 状态战报</h1>
+        <div class="subtitle">个人统计：最近 24 小时 · 全站统计：AdGuard Home 累计数据</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span class="pill" id="lastUpdated">等待首次更新…</span>
+        <button id="refreshBtn" type="button">立即刷新</button>
+      </div>
+    </header>
 
-  <section class="panel">
-    <div class="panel-head">
-      <h2>当前网络与客户端 IP</h2>
-      <span class="status"><span class="dot" id="dnsDot"></span><span id="dnsStatus">检测中</span></span>
-    </div>
-    <div class="grid" style="grid-template-columns:repeat(2,minmax(0,1fr))">
-      <div class="card"><div class="label">当前路由选择的 IPv4</div><div class="value green" style="font-size:17px" id="publicIpv4">检测中…</div><div class="hint">读取系统为 IPv4 路由选择的本地源地址</div></div>
-      <div class="card"><div class="label">当前路由选择的 IPv6</div><div class="value green" style="font-size:17px" id="publicIpv6">检测中…</div><div class="hint">无 IPv6 路由或当前进程无法使用时显示“不可用”</div></div>
-    </div>
-    <div class="notice" id="clientNote">以上地址通过本地路由选择获取，不访问公网 IP 检测网站；地址不一定等于代理服务器的公网出口 IP。</div>
-  </section>
+    <section class="panel">
+      <div class="panel-head">
+        <h2>当前客户端 IP</h2>
+        <span class="status"><span class="dot" id="dnsDot"></span><span id="dnsStatus">检测中</span></span>
+      </div>
+      <div class="grid" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+        <div class="card">
+          <div class="label">当前客户端 IPv4</div>
+          <div class="value green" style="font-size:17px" id="publicIpv4">检测中…</div>
+          <div class="hint">无法读取 IPv4 或无 IPv4 时显示“不可用”</div>
+        </div>
+        <div class="card">
+          <div class="label">当前客户端 IPv6</div>
+          <div class="value green" style="font-size:17px" id="publicIpv6">检测中…</div>
+          <div class="hint">无法读取 IPv6 或无 IPv6 时显示“不可用”</div>
+        </div>
+      </div>
+      <div class="notice" id="clientNote">以上地址为当前客户端地址。</div>
+    </section>
 
-  <section class="panel">
-    <div class="panel-head">
-      <h2>个人战报</h2>
-      <span class="pill">最近 24 小时</span>
-    </div>
-    <div class="grid">
-      <div class="card"><div class="label">查询总数</div><div class="value blue" id="pTotal">—</div><div class="hint">24 小时内记录</div></div>
-      <div class="card"><div class="label">拦截数量</div><div class="value red" id="pBlocked">—</div><div class="hint">被拦截的查询</div></div>
-      <div class="card"><div class="label">放行数量</div><div class="value green" id="pAllowList">—</div><div class="hint">AdGuard Home 白名单放行记录</div></div>
-      <div class="card"><div class="label">未处理数量</div><div class="value yellow" id="pAllowed">—</div><div class="hint">查询总数 − 拦截数量 − 放行数量</div></div>
-    </div>
-    <div class="row"><span class="muted">最近一次查询</span><strong id="pLatest">—</strong></div>
-    <div class="row"><span class="muted">最近 30 分钟有查询</span><strong id="pActive">—</strong></div>
-    <div class="notice" id="personalNote">正在读取个人查询日志…</div>
-  </section>
+    <section class="panel">
+      <div class="panel-head">
+        <h2>个人战报</h2>
+        <span class="pill">最近 24 小时</span>
+      </div>
+      <div class="grid">
+        <div class="card">
+          <div class="label">查询总数</div>
+          <div class="value blue" id="pTotal">—</div>
+          <div class="hint">24 小时内记录</div>
+        </div>
+        <div class="card">
+          <div class="label">拦截数量</div>
+          <div class="value red" id="pBlocked">—</div>
+          <div class="hint">被拦截的查询</div>
+        </div>
+        <div class="card">
+          <div class="label">放行数量</div>
+          <div class="value green" id="pAllowList">—</div>
+          <div class="hint">被放行的查询</div>
+        </div>
+        <div class="card">
+          <div class="label">未处理数量</div>
+          <div class="value yellow" id="pAllowed">—</div>
+          <div class="hint">未处理的查询</div>
+        </div>
+      </div>
+      <div class="row"><span class="muted">最近一次查询</span><strong id="pLatest">—</strong></div>
+      <div class="row"><span class="muted">最近 30 分钟有查询</span><strong id="pActive">—</strong></div>
+      <div class="notice" id="personalNote">正在读取个人查询日志…</div>
+    </section>
 
-  <section class="panel">
-    <div class="panel-head">
-      <h2>全站战报</h2>
-      <span class="pill">AdGuard Home 累计统计</span>
-    </div>
-    <div class="grid">
-      <div class="card"><div class="label">全站查询总数</div><div class="value blue" id="gTotal">—</div><div class="hint">服务端累计数据</div></div>
-      <div class="card"><div class="label">全站拦截数量</div><div class="value red" id="gBlocked">—</div><div class="hint">服务端累计数据</div></div>
-      <div class="card"><div class="label">全站放行数量</div><div class="value green" id="gAllowList">—</div><div class="hint">根据 querylog 中的白名单放行记录统计</div></div>
-      <div class="card"><div class="label">全站未处理数量</div><div class="value yellow" id="gAllowed">—</div><div class="hint">查询总数 − 拦截数量 − 放行数量</div></div>
-    </div>
-    <div class="notice" id="globalNote">正在读取全站统计…</div>
-  </section>
-  <footer>每 5 秒自动刷新 · 个人日志仅统计最近 24 小时</footer>
-</main>
-<script>
-"use strict";
+    <section class="panel">
+      <div class="panel-head">
+        <h2>全站战报</h2>
+        <span class="pill">AdGuard Home 累计统计</span>
+      </div>
+      <div class="grid">
+        <div class="card">
+          <div class="label">全站查询总数</div>
+          <div class="value blue" id="gTotal">—</div>
+          <div class="hint">服务端累计数据</div>
+        </div>
+        <div class="card">
+          <div class="label">全站拦截数量</div>
+          <div class="value red" id="gBlocked">—</div>
+          <div class="hint">服务端累计拦截数据</div>
+        </div>
+        <div class="card">
+          <div class="label">全站放行数量</div>
+          <div class="value green" id="gAllowList">—</div>
+          <div class="hint">服务端累计放行数据</div>
+        </div>
+        <div class="card">
+          <div class="label">全站未处理数量</div>
+          <div class="value yellow" id="gAllowed">—</div>
+          <div class="hint">服务端累计未处理数据</div>
+        </div>
+      </div>
+      <div class="notice" id="globalNote">正在读取全站统计…</div>
+    </section>
+    <footer>每 5 秒自动刷新 · 个人日志仅统计最近 24 小时</footer>
+  </main>
+  <script>
+    "use strict";
 
-const STAT_PERIOD_HOURS = 24;
-const WINDOW_MINS = 30;
-const REFRESH_INTERVAL = 5000;
-const PAGE_SIZE = 1000;
-const MAX_PAGES_PER_STATUS = 10000;
-const $ = id => document.getElementById(id);
-let refreshBusy = false;
-let ipDetectionErrors = [];
+    const STAT_PERIOD_HOURS = 24;
+    const WINDOW_MINS = 30;
+    const REFRESH_INTERVAL = 5000;
+    const PAGE_SIZE = 1000;
+    const MAX_PAGES_PER_STATUS = 10000;
+    const $ = id => document.getElementById(id);
+    let refreshBusy = false;
+    let ipDetectionErrors = [];
 
-function fmt(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n.toLocaleString("zh-CN") : "—";
-}
-function setText(id, value) { const el = $(id); if (el) el.textContent = value; }
-function timeText(value) {
-  if (!value) return "—";
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString("zh-CN", {hour12:false});
-}
-function parseDate(entry) {
-  const raw = entry?.time ?? entry?.Time ?? entry?.timestamp ?? entry?.Timestamp;
-  if (!raw) return null;
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-function questionName(entry) {
-  return entry?.question?.name ?? entry?.Question?.Name ?? entry?.question?.Name ?? "";
-}
-function clientName(entry) {
-  return entry?.client ?? entry?.Client ?? entry?.client_ip ?? entry?.ClientIP ?? "";
-}
-function entryKey(entry) {
-  const d = parseDate(entry);
-  return [d ? d.toISOString() : "", questionName(entry).toLowerCase(), clientName(entry), entry?.question?.type ?? entry?.Question?.Type ?? ""].join("|");
-}
-function isBlocked(entry) {
-  const result = entry?.result ?? entry?.Result ?? {};
-  return Boolean(result?.isFiltered ?? result?.IsFiltered ?? entry?.is_filtered ?? entry?.IsFiltered);
-}
-function isWhitelisted(entry) {
-  const result = entry?.result ?? entry?.Result ?? {};
-  const reason = String(result?.reason ?? result?.Reason ?? entry?.reason ?? entry?.Reason ?? "").toLowerCase();
-  return reason.includes("whitelist") || reason.includes("white_list") || reason.includes("白名单");
-}
-function inWindow(entry, startMs, endMs) {
-  const d = parseDate(entry);
-  return d && d.getTime() >= startMs && d.getTime() <= endMs;
-}
-async function api(path) {
-  const response = await fetch(path, {cache:"no-store", headers:{"Accept":"application/json"}});
-  if (!response.ok) throw new Error(`${path}：HTTP ${response.status}`);
-  return response.json();
-}
-async function detectBrowserEgress(family) {
-  // 通过 Rust 后端读取系统路由选择的本地源地址，不访问公网 IP 检测服务。
-  // 每个协议族独立检测；IPv6 不可用不会阻止 IPv4。
-  try {
-    const data = await api(`/api/local-ip/${family}`);
-    const ip = String(data.ip || "").trim();
-    if (!ip) throw new Error("检测接口没有返回 IP");
-    return ip;
-  } catch (error) {
-    const detail = error?.message || String(error);
-    ipDetectionErrors.push(`IPv${family}：${detail}`);
-    console.warn(`IPv${family} 检测失败：`, error);
-    return null;
-  }
-}
-function displayIp(id, value) {
-  setText(id, value || "不可用");
-}
-
-/*
- * 分页读取单一状态的查询日志。使用响应里的 oldest 作为下一页游标；
- * 若服务端未返回游标，则退化为按当前页最早时间继续。
- */
-async function fetchQuerylogPage(search, status, olderThan) {
-  const params = new URLSearchParams({limit:String(PAGE_SIZE), response_status:status});
-  if (search) params.set("search", search);
-  if (olderThan) params.set("older_than", olderThan);
-  return api("/control/querylog?" + params.toString());
-}
-function extractData(json) {
-  if (Array.isArray(json)) return json;
-  if (Array.isArray(json?.data)) return json.data;
-  if (Array.isArray(json?.Data)) return json.Data;
-  if (Array.isArray(json?.result)) return json.result;
-  return [];
-}
-function getOldestCursor(json, entries) {
-  const cursor = json?.oldest ?? json?.Oldest ?? json?.oldest_timestamp;
-  if (cursor) return String(cursor);
-  let oldest = null;
-  for (const entry of entries) {
-    const d = parseDate(entry);
-    if (d && (!oldest || d < oldest)) oldest = d;
-  }
-  return oldest ? oldest.toISOString() : null;
-}
-async function fetchAllStatusForIp(ip, status, startMs, endMs) {
-  const found = [];
-  const seenCursors = new Set();
-  let cursor = null;
-  for (let page = 0; page < MAX_PAGES_PER_STATUS; page++) {
-    const json = await fetchQuerylogPage(ip, status, cursor);
-    const rows = extractData(json);
-    if (!rows.length) break;
-    for (const row of rows) {
-      if (inWindow(row, startMs, endMs)) found.push(row);
+    function fmt(value) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n.toLocaleString("zh-CN") : "—";
+    }
+    function setText(id, value) { const el = $(id); if (el) el.textContent = value; }
+    function timeText(value) {
+      if (!value) return "—";
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString("zh-CN", { hour12: false });
+    }
+    function parseDate(entry) {
+      const raw = entry?.time ?? entry?.Time ?? entry?.timestamp ?? entry?.Timestamp;
+      if (!raw) return null;
+      const d = new Date(raw);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    function questionName(entry) {
+      return entry?.question?.name ?? entry?.Question?.Name ?? entry?.question?.Name ?? "";
+    }
+    function clientName(entry) {
+      return entry?.client ?? entry?.Client ?? entry?.client_ip ?? entry?.ClientIP ?? "";
+    }
+    function entryKey(entry) {
+      const d = parseDate(entry);
+      return [d ? d.toISOString() : "", questionName(entry).toLowerCase(), clientName(entry), entry?.question?.type ?? entry?.Question?.Type ?? ""].join("|");
+    }
+    function isBlocked(entry) {
+      const result = entry?.result ?? entry?.Result ?? {};
+      return Boolean(result?.isFiltered ?? result?.IsFiltered ?? entry?.is_filtered ?? entry?.IsFiltered);
+    }
+    function isWhitelisted(entry) {
+      const result = entry?.result ?? entry?.Result ?? {};
+      const reason = String(result?.reason ?? result?.Reason ?? entry?.reason ?? entry?.Reason ?? "").toLowerCase();
+      return reason.includes("whitelist") || reason.includes("white_list") || reason.includes("白名单");
+    }
+    function inWindow(entry, startMs, endMs) {
+      const d = parseDate(entry);
+      return d && d.getTime() >= startMs && d.getTime() <= endMs;
+    }
+    async function api(path) {
+      const response = await fetch(path, { cache: "no-store", headers: { "Accept": "application/json" } });
+      if (!response.ok) throw new Error(`${path}：HTTP ${response.status}`);
+      return response.json();
+    }
+    async function detectBrowserEgress(family) {
+      // 通过 Rust 后端读取系统路由选择的本地源地址，不访问公网 IP 检测服务。
+      // 每个协议族独立检测；IPv6 不可用不会阻止 IPv4。
+      try {
+        const data = await api(`/api/local-ip/${family}`);
+        const ip = String(data.ip || "").trim();
+        if (!ip) throw new Error("检测接口没有返回 IP");
+        return ip;
+      } catch (error) {
+        const detail = error?.message || String(error);
+        ipDetectionErrors.push(`IPv${family}：${detail}`);
+        console.warn(`IPv${family} 检测失败：`, error);
+        return null;
+      }
+    }
+    function displayIp(id, value) {
+      setText(id, value || "不可用");
     }
 
-    const next = getOldestCursor(json, rows);
-    if (!next || next === cursor || seenCursors.has(next)) break;
-    seenCursors.add(next);
-    cursor = next;
-
-    const oldestDate = rows.map(parseDate).filter(Boolean).sort((a,b)=>a-b)[0];
-    if (oldestDate && oldestDate.getTime() < startMs) break;
-    if (rows.length < PAGE_SIZE) break;
-  }
-  return found;
-}
-async function fetchPersonal(ips) {
-  const now = Date.now();
-  const start = now - STAT_PERIOD_HOURS * 60 * 60 * 1000;
-  const end = now;
-  const allRows = [];
-  const blockedRows = [];
-  const whiteRows = [];
-  const errors = [];
-
-  for (const ip of ips) {
-    const jobs = [
-      fetchAllStatusForIp(ip, "all", start, end).then(v=>allRows.push(...v)).catch(e=>errors.push(`${ip} 全部记录：${e.message}`)),
-      fetchAllStatusForIp(ip, "blocked", start, end).then(v=>blockedRows.push(...v)).catch(e=>errors.push(`${ip} 拦截记录：${e.message}`)),
-      fetchAllStatusForIp(ip, "whitelisted", start, end).then(v=>whiteRows.push(...v)).catch(e=>errors.push(`${ip} 白名单记录：${e.message}`))
-    ];
-    await Promise.all(jobs);
-  }
-
-  // 按用户要求：IPv4/IPv6 查询结果直接合并，不去重。
-  const all = allRows.filter(row=>inWindow(row,start,end));
-  const blocked = blockedRows.filter(row=>inWindow(row,start,end));
-  const white = whiteRows.filter(row=>inWindow(row,start,end));
-  const latest = all.map(parseDate).filter(Boolean).sort((a,b)=>b-a)[0];
-  const active = all.some(row=>inWindow(row, now-WINDOW_MINS*60*1000, now));
-
-  setText("pTotal", fmt(all.length));
-  setText("pBlocked", fmt(blocked.length));
-  setText("pAllowList", fmt(white.length));
-  setText("pAllowed", fmt(Math.max(0, all.length-blocked.length-white.length)));
-  setText("pLatest", latest ? timeText(latest.toISOString()) : "暂无记录");
-  setText("pActive", active ? "是" : "否");
-  $("pActive").className = active ? "green" : "muted";
-  setText("personalNote", errors.length
-    ? `部分查询失败：${errors.slice(0,3).join("；")}${errors.length>3?"…":""}`
-    : `已读取 ${ips.length} 个客户端地址；放行量按白名单记录计算，未处理量 = 查询总数 − 拦截量 − 放行量。统计区间 ${timeText(new Date(start).toISOString())} 至 ${timeText(new Date(end).toISOString())}。`);
-  $("personalNote").className = "notice" + (errors.length ? " error" : "");
-  setText("dnsStatus", active ? "DNS 活跃" : "最近 30 分钟无查询");
-  $("dnsDot").className = "dot" + (active ? " live" : "");
-}
-async function fetchGlobal() {
-  const json = await api("/control/stats");
-  const stats = json?.stats ?? json?.Stats ?? json;
-  const total = Number(stats?.num_dns_queries ?? stats?.numQueries ?? stats?.total_queries ?? stats?.total ?? 0);
-  const blocked = Number(stats?.num_blocked_filtering ?? stats?.blocked_filtering ?? stats?.blocked ?? 0);
-
-  // /control/stats 的 num_replaced_safebrowsing 并不是白名单放行总数，
-  // 因此全站放行量改为直接分页统计 querylog 的 whitelisted 状态。
-  // 该数量受 AdGuard Home 查询日志保留策略影响；不再把错误的 stats 字段当白名单数。
-  const whiteRows = await fetchAllStatusForIp("", "whitelisted", 0, Date.now());
-  const passed = whiteRows.length;
-  const unprocessed = Math.max(0, total - blocked - passed);
-
-  setText("gTotal", fmt(total));
-  setText("gBlocked", fmt(blocked));
-  setText("gAllowList", fmt(passed));
-  setText("gAllowed", fmt(unprocessed));
-  setText("globalNote", `全站查询量和拦截量来自 AdGuard Home 统计接口；放行量来自 querylog 中可读取到的白名单记录（${fmt(passed)} 条），受查询日志保留策略影响。未处理量 = 查询量 − 拦截量 − 放行量。`);
-}
-async function refresh() {
-  if (refreshBusy) return;
-  refreshBusy = true;
-  $("refreshBtn").disabled = true;
-  try {
-    // 本地路由分别探测 IPv4/IPv6；失败时显示“不可用”。
-    ipDetectionErrors = [];
-    const [ipv4, ipv6] = await Promise.all([
-      detectBrowserEgress(4),
-      detectBrowserEgress(6)
-    ]);
-    displayIp("publicIpv4", ipv4);
-    displayIp("publicIpv6", ipv6);
-
-    // 个人战报严格按检测到的 IPv4/IPv6 查询；合并结果时不去重。
-    const ips = [ipv4, ipv6]
-      .filter(value => typeof value === "string" && value.trim())
-      .map(value => value.trim());
-
-    if (!ips.length) {
-      ["pTotal","pBlocked","pAllowList","pAllowed"].forEach(id=>setText(id,"—"));
-      setText("pLatest","—");
-      setText("pActive","—");
-      setText("personalNote", "没有取得可用于匹配的地址，暂时无法查询个人日志。" + (ipDetectionErrors.length ? "检测详情：" + ipDetectionErrors.join("；") : "请检查服务端、网络或代理设置。"));
-      $("personalNote").className = "notice error";
-      setText("dnsStatus","地址检测失败");
-      $("dnsDot").className = "dot";
-    } else {
-      const routeIps = [ipv4 ? `IPv4 ${ipv4}` : "IPv4 不可用", ipv6 ? `IPv6 ${ipv6}` : "IPv6 不可用"];
-      const errorHint = ipDetectionErrors.length ? `；检测失败详情：${ipDetectionErrors.join("；")}` : "";
-      setText("clientNote", `当前路由源地址：${routeIps.join("；")}。个人战报按可用的 IPv4/IPv6 分别查询并直接合并，不去重。注意：这是本地路由选择的源地址，不保证是代理公网出口 IP。${errorHint}`);
-      await fetchPersonal(ips);
+    /*
+     * 分页读取单一状态的查询日志。使用响应里的 oldest 作为下一页游标；
+     * 若服务端未返回游标，则退化为按当前页最早时间继续。
+     */
+    async function fetchQuerylogPage(search, status, olderThan) {
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE), response_status: status });
+      if (search) params.set("search", search);
+      if (olderThan) params.set("older_than", olderThan);
+      return api("/control/querylog?" + params.toString());
     }
-  } catch (e) {
-    setText("personalNote", "个人数据读取失败：" + e.message);
-    $("personalNote").className = "notice error";
-    setText("dnsStatus","检测失败");
-    $("dnsDot").className = "dot";
-  }
-  try {
-    await fetchGlobal();
-  } catch (e) {
-    setText("globalNote", "全站数据读取失败：" + e.message);
-    $("globalNote").className = "notice error";
-  }
-  setText("lastUpdated","更新于 " + new Date().toLocaleTimeString("zh-CN",{hour12:false}));
-  $("refreshBtn").disabled = false;
-  refreshBusy = false;
-}
-$("refreshBtn").addEventListener("click", refresh);
-refresh();
-setInterval(refresh, REFRESH_INTERVAL);
-</script>
+    function extractData(json) {
+      if (Array.isArray(json)) return json;
+      if (Array.isArray(json?.data)) return json.data;
+      if (Array.isArray(json?.Data)) return json.Data;
+      if (Array.isArray(json?.result)) return json.result;
+      return [];
+    }
+    function getOldestCursor(json, entries) {
+      const cursor = json?.oldest ?? json?.Oldest ?? json?.oldest_timestamp;
+      if (cursor) return String(cursor);
+      let oldest = null;
+      for (const entry of entries) {
+        const d = parseDate(entry);
+        if (d && (!oldest || d < oldest)) oldest = d;
+      }
+      return oldest ? oldest.toISOString() : null;
+    }
+    async function fetchAllStatusForIp(ip, status, startMs, endMs) {
+      const found = [];
+      const seenCursors = new Set();
+      let cursor = null;
+      for (let page = 0; page < MAX_PAGES_PER_STATUS; page++) {
+        const json = await fetchQuerylogPage(ip, status, cursor);
+        const rows = extractData(json);
+        if (!rows.length) break;
+        for (const row of rows) {
+          if (inWindow(row, startMs, endMs)) found.push(row);
+        }
+
+        const next = getOldestCursor(json, rows);
+        if (!next || next === cursor || seenCursors.has(next)) break;
+        seenCursors.add(next);
+        cursor = next;
+
+        const oldestDate = rows.map(parseDate).filter(Boolean).sort((a, b) => a - b)[0];
+        if (oldestDate && oldestDate.getTime() < startMs) break;
+        if (rows.length < PAGE_SIZE) break;
+      }
+      return found;
+    }
+    async function fetchPersonal(ips) {
+      const now = Date.now();
+      const start = now - STAT_PERIOD_HOURS * 60 * 60 * 1000;
+      const end = now;
+      const allRows = [];
+      const blockedRows = [];
+      const whiteRows = [];
+      const errors = [];
+
+      for (const ip of ips) {
+        const jobs = [
+          fetchAllStatusForIp(ip, "all", start, end).then(v => allRows.push(...v)).catch(e => errors.push(`${ip} 全部记录：${e.message}`)),
+          fetchAllStatusForIp(ip, "blocked", start, end).then(v => blockedRows.push(...v)).catch(e => errors.push(`${ip} 拦截记录：${e.message}`)),
+          fetchAllStatusForIp(ip, "whitelisted", start, end).then(v => whiteRows.push(...v)).catch(e => errors.push(`${ip} 白名单记录：${e.message}`))
+        ];
+        await Promise.all(jobs);
+      }
+
+      // 按用户要求：IPv4/IPv6 查询结果直接合并，不去重。
+      const all = allRows.filter(row => inWindow(row, start, end));
+      const blocked = blockedRows.filter(row => inWindow(row, start, end));
+      const white = whiteRows.filter(row => inWindow(row, start, end));
+      const latest = all.map(parseDate).filter(Boolean).sort((a, b) => b - a)[0];
+      const active = all.some(row => inWindow(row, now - WINDOW_MINS * 60 * 1000, now));
+
+      setText("pTotal", fmt(all.length));
+      setText("pBlocked", fmt(blocked.length));
+      setText("pAllowList", fmt(white.length));
+      setText("pAllowed", fmt(Math.max(0, all.length - blocked.length - white.length)));
+      setText("pLatest", latest ? timeText(latest.toISOString()) : "暂无记录");
+      setText("pActive", active ? "是" : "否");
+      $("pActive").className = active ? "green" : "muted";
+      setText("personalNote", errors.length
+        ? `部分查询失败：${errors.slice(0, 3).join("；")}${errors.length > 3 ? "…" : ""}`
+        : `已读取 ${ips.length} 个客户端地址。统计区间 ${timeText(new Date(start).toISOString())} 至 ${timeText(new Date(end).toISOString())}。`);
+      $("personalNote").className = "notice" + (errors.length ? " error" : "");
+      setText("dnsStatus", active ? "DNS 活跃" : "最近 30 分钟无查询");
+      $("dnsDot").className = "dot" + (active ? " live" : "");
+    }
+    async function fetchGlobal() {
+      const json = await api("/control/stats");
+      const stats = json?.stats ?? json?.Stats ?? json;
+      const total = Number(stats?.num_dns_queries ?? stats?.numQueries ?? stats?.total_queries ?? stats?.total ?? 0);
+      const blocked = Number(stats?.num_blocked_filtering ?? stats?.blocked_filtering ?? stats?.blocked ?? 0);
+
+      // /control/stats 的 num_replaced_safebrowsing 并不是白名单放行总数，
+      // 因此全站放行量改为直接分页统计 querylog 的 whitelisted 状态。
+      // 该数量受 AdGuard Home 查询日志保留策略影响；不再把错误的 stats 字段当白名单数。
+      const whiteRows = await fetchAllStatusForIp("", "whitelisted", 0, Date.now());
+      const passed = whiteRows.length;
+      const unprocessed = Math.max(0, total - blocked - passed);
+
+      setText("gTotal", fmt(total));
+      setText("gBlocked", fmt(blocked));
+      setText("gAllowList", fmt(passed));
+      setText("gAllowed", fmt(unprocessed));
+      setText("globalNote", `数据来自林林的AdguardHome。`);
+    }
+    async function refresh() {
+      if (refreshBusy) return;
+      refreshBusy = true;
+      $("refreshBtn").disabled = true;
+      try {
+        // 本地路由分别探测 IPv4/IPv6；失败时显示“不可用”。
+        ipDetectionErrors = [];
+        const [ipv4, ipv6] = await Promise.all([
+          detectBrowserEgress(4),
+          detectBrowserEgress(6)
+        ]);
+        displayIp("publicIpv4", ipv4);
+        displayIp("publicIpv6", ipv6);
+
+        // 个人战报严格按检测到的 IPv4/IPv6 查询；合并结果时不去重。
+        const ips = [ipv4, ipv6]
+          .filter(value => typeof value === "string" && value.trim())
+          .map(value => value.trim());
+
+        if (!ips.length) {
+          ["pTotal", "pBlocked", "pAllowList", "pAllowed"].forEach(id => setText(id, "—"));
+          setText("pLatest", "—");
+          setText("pActive", "—");
+          setText("personalNote", "没有取得可用于匹配的地址，暂时无法查询个人日志。" + (ipDetectionErrors.length ? "检测详情：" + ipDetectionErrors.join("；") : "请检查服务端、网络或代理设置。"));
+          $("personalNote").className = "notice error";
+          setText("dnsStatus", "地址检测失败");
+          $("dnsDot").className = "dot";
+        } else {
+          const routeIps = [ipv4 ? `IPv4 ${ipv4}` : "IPv4 不可用", ipv6 ? `IPv6 ${ipv6}` : "IPv6 不可用"];
+          const errorHint = ipDetectionErrors.length ? `；检测失败详情：${ipDetectionErrors.join("；")}` : "";
+          setText("clientNote", `当前地址：${routeIps.join("；")}。${errorHint}`);
+          await fetchPersonal(ips);
+        }
+      } catch (e) {
+        setText("personalNote", "个人数据读取失败：" + e.message);
+        $("personalNote").className = "notice error";
+        setText("dnsStatus", "检测失败");
+        $("dnsDot").className = "dot";
+      }
+      try {
+        await fetchGlobal();
+      } catch (e) {
+        setText("globalNote", "全站数据读取失败：" + e.message);
+        $("globalNote").className = "notice error";
+      }
+      setText("lastUpdated", "更新于 " + new Date().toLocaleTimeString("zh-CN", { hour12: false }));
+      $("refreshBtn").disabled = false;
+      refreshBusy = false;
+    }
+    $("refreshBtn").addEventListener("click", refresh);
+    refresh();
+    setInterval(refresh, REFRESH_INTERVAL);
+  </script>
 </body>
+
 </html>
