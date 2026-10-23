@@ -57,11 +57,14 @@ footer{text-align:center;color:var(--muted);font-size:12px;margin-top:20px}
 
   <section class="panel">
     <div class="panel-head">
-      <h2>当前客户端</h2>
+      <h2>当前网络与客户端 IP</h2>
       <span class="status"><span class="dot" id="dnsDot"></span><span id="dnsStatus">检测中</span></span>
     </div>
-    <div class="ip-list" id="ipList"><span class="muted">正在获取客户端 IP…</span></div>
-    <div class="notice" id="clientNote">个人数据按检测到的客户端 IP 查询。</div>
+    <div class="grid" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+      <div class="card"><div class="label">当前使用的 IPv4（浏览器出口）</div><div class="value green" style="font-size:17px" id="publicIpv4">检测中…</div><div class="hint">会随浏览器实际使用的 VPN/代理出口变化</div></div>
+      <div class="card"><div class="label">当前使用的 IPv6（浏览器出口）</div><div class="value green" style="font-size:17px" id="publicIpv6">检测中…</div><div class="hint">没有 IPv6 路径或检测失败时显示“不可用”</div></div>
+    </div>
+    <div class="notice" id="clientNote">以上地址由当前浏览器分别访问 IPv4/IPv6 检测服务获得，并用检测成功的地址查询个人日志。</div>
   </section>
 
   <section class="panel">
@@ -150,11 +153,29 @@ async function api(path) {
   if (!response.ok) throw new Error(`${path}：HTTP ${response.status}`);
   return response.json();
 }
-async function getClientIps() {
-  const data = await api("/api/client-ip");
-  const raw = Array.isArray(data) ? data : (data.ips ?? data.client_ips ?? data.ip ?? []);
-  const ips = (Array.isArray(raw) ? raw : [raw]).map(v => String(v).trim()).filter(Boolean);
-  return [...new Set(ips)];
+async function detectBrowserEgress(family) {
+  // 必须在浏览器端检测；不能用 Rust 主机的路由地址代替手机的出口地址。
+  // api4/api6 强制对应协议族，因此检测结果可分别作为 IPv4/IPv6 日志匹配候选。
+  const target = family === 4
+    ? "https://api4.ipify.org?format=json"
+    : "https://api6.ipify.org?format=json";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(target, {cache:"no-store", mode:"cors", signal:controller.signal});
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    const data = await response.json();
+    const ip = String(data.ip || "").trim();
+    if (!ip) return null;
+    return ip;
+  } catch (_) {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+function displayIp(id, value) {
+  setText(id, value || "不可用");
 }
 
 /*
@@ -263,26 +284,33 @@ async function refresh() {
   refreshBusy = true;
   $("refreshBtn").disabled = true;
   try {
-    const ips = await getClientIps();
-    $("ipList").replaceChildren();
-    if (ips.length) {
-      for (const ip of ips) {
-        const el = document.createElement("span");
-        el.className = "ip";
-        el.textContent = ip;
-        $("ipList").appendChild(el);
-      }
-    } else {
-      $("ipList").textContent = "未检测到客户端 IP";
-    }
+    // 出口 IPv4/IPv6 由浏览器分别检测；失败时显示“不可用”。
+    const [ipv4, ipv6, localInfo] = await Promise.all([
+      detectBrowserEgress(4),
+      detectBrowserEgress(6),
+      api("/api/client-ip").catch(() => ({}))
+    ]);
+    displayIp("publicIpv4", ipv4);
+    displayIp("publicIpv6", ipv6);
+
+    // 个人日志同时匹配出口地址和本机可能被 AdGuard Home 记录的地址。
+    // 53 端口被重定向到本机时，日志客户端未必是公网出口 IP。
+    const localCandidates = Array.isArray(localInfo?.query_ips) ? localInfo.query_ips : [];
+    const ips = [...new Set([ipv4, ipv6, ...localCandidates]
+      .filter(value => typeof value === "string" && value.trim())
+      .map(value => value.trim()))];
+
     if (!ips.length) {
-      ["pTotal","pBlocked","pAllowList","pAllowed"].forEach(id=>setText(id,"0"));
-      setText("pLatest","暂无记录");
-      setText("pActive","否");
-      setText("personalNote","未检测到客户端 IP，无法查询个人记录。");
-      setText("dnsStatus","无法判断");
+      ["pTotal","pBlocked","pAllowList","pAllowed"].forEach(id=>setText(id,"—"));
+      setText("pLatest","—");
+      setText("pActive","—");
+      setText("personalNote","没有取得可用于匹配的地址，暂时无法查询个人日志。请检查服务端、网络或代理设置。");
+      $("personalNote").className = "notice error";
+      setText("dnsStatus","地址检测失败");
       $("dnsDot").className = "dot";
     } else {
+      const egress = [ipv4 ? `IPv4 ${ipv4}` : "IPv4 不可用", ipv6 ? `IPv6 ${ipv6}` : "IPv6 不可用"];
+      setText("clientNote", `当前出口：${egress.join("；")}。个人日志另外匹配本机候选地址，以兼容 53 端口重定向后 AdGuard Home 记录的客户端地址。`);
       await fetchPersonal(ips);
     }
   } catch (e) {
