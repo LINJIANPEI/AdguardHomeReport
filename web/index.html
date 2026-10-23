@@ -176,7 +176,6 @@
             background: linear-gradient(90deg, transparent, rgba(59, 130, 246, .8), transparent);
         }
 
-        /* 动态状态球 */
         .status-orb {
             position: relative;
             width: 96px;
@@ -382,7 +381,6 @@
             background: linear-gradient(90deg, transparent, var(--border), transparent);
         }
 
-        /* 环形图区域 */
         .rate-panel {
             display: flex;
             align-items: center;
@@ -482,7 +480,6 @@
             color: var(--green);
         }
 
-        /* 数据卡片（含迷你柱状图） */
         .stat-cards {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -588,7 +585,6 @@
             color: var(--amber);
         }
 
-        /* 迷你柱状图 */
         .mini-bars {
             display: flex;
             align-items: flex-end;
@@ -613,7 +609,6 @@
             background: linear-gradient(180deg, rgba(139, 92, 246, .8), rgba(139, 92, 246, .2));
         }
 
-        /* 信息表格 */
         .meta-table {
             margin-top: 16px;
             border: 1px solid var(--border);
@@ -761,8 +756,8 @@
             <div class="brand">
                 <div class="brand-logo">D</div>
                 <div class="brand-text">
-                    <div class="name">DNS 检测 <span style="font-size:9px;color:var(--green);">V7.2</span></div>
-                    <div class="sub">修复数据限制完美版</div>
+                    <div class="name">DNS 检测 <span style="font-size:9px;color:var(--green);">V8.0</span></div>
+                    <div class="sub">原生 response_status 极速版</div>
                 </div>
             </div>
         </div>
@@ -903,7 +898,6 @@
     <script>
         const RING_C = 2 * Math.PI * 44;
         const REFRESH_INTERVAL = 5000;
-        const STAT_PERIOD_HOURS = 24;
         const WINDOW_MINS = 30;
 
         let state = {
@@ -964,7 +958,6 @@
             el.ringValue.textContent = q > 0 ? (rate * 100).toFixed(1) + '%' : '—';
         }
 
-        // 从后端的专属接口获取 IP
         async function fetchClientIPFromLucky() {
             const r = await fetch('/api/client-ip', { cache: 'no-store' });
             if (!r.ok) throw new Error('client-ip HTTP ' + r.status);
@@ -972,43 +965,40 @@
             return cleanIP(text);
         }
 
-        async function initialFetch(ip) {
-            const periodStart = Date.now() - STAT_PERIOD_HOURS * 3600 * 1000;
+        // 核心：直接让 AdGuard 原生按 response_status 过滤，并发请求三次
+        async function fetchPersonal(ip) {
+            const base = `/control/querylog?search=${encodeURIComponent(ip)}&older_than=24h&limit=10000`;
 
-            // ⚠️ 将 limit 降低到 5000，防止 AdGuard 报错
-            const rLog = await fetch(`/control/querylog?search=${encodeURIComponent(ip)}&limit=5000`, { cache: 'no-store' });
-            if (rLog.status === 401) throw new Error('AUTH');
+            const [rAll, rBlocked, rWhite] = await Promise.all([
+                fetch(`${base}&response_status=all`, { cache: 'no-store' }),
+                fetch(`${base}&response_status=blocked`, { cache: 'no-store' }),
+                fetch(`${base}&response_status=whitelisted`, { cache: 'no-store' })
+            ]);
 
-            const log = await rLog.json();
+            if (!rAll.ok || !rBlocked.ok || !rWhite.ok) throw new Error('API 响应错误，请检查端口');
 
-            // 防错：如果拿到的不是数组，说明后端报错了
-            if (!log.data || !Array.isArray(log.data)) {
-                console.error("接口返回异常:", log);
-                return { queries: 0, blocked: 0, allowed: 0, lastSeen: null, firstSeen: null };
+            const [dAll, dBlocked, dWhite] = await Promise.all([
+                rAll.json(), rBlocked.json(), rWhite.json()
+            ]);
+
+            const allList = dAll.data || [];
+            const blockedList = dBlocked.data || [];
+            const whiteList = dWhite.data || [];
+
+            let lastSeen = null, firstSeen = null;
+            if (allList.length > 0) {
+                lastSeen = allList[0].Time || allList[0].time;
+                firstSeen = allList[allList.length - 1].Time || allList[allList.length - 1].time;
             }
 
-            const list = log.data;
+            state.personal = {
+                queries: allList.length,
+                blocked: blockedList.length,
+                allowed: whiteList.length,
+                lastSeen,
+                firstSeen
+            };
 
-            let queries = 0, blocked = 0, allowed = 0, lastSeen = null, firstSeen = null;
-
-            for (const e of list) {
-                const timeStr = e.Time || e.time;
-                const t = parseTime(timeStr);
-
-                if (!lastSeen || t > parseTime(lastSeen)) lastSeen = timeStr;
-                if (!firstSeen || t < parseTime(firstSeen)) firstSeen = timeStr;
-
-                if (t < periodStart) break;
-                queries++;
-
-                if (e.Result && e.Result.IsFiltered === true) {
-                    blocked++;
-                } else if (e.Reason && e.Reason.includes('AllowList')) {
-                    allowed++;
-                }
-            }
-
-            state.personal = { queries, blocked, allowed, lastSeen, firstSeen };
             state.latestTime = lastSeen ? parseTime(lastSeen) : Date.now();
             return state.personal;
         }
@@ -1020,20 +1010,17 @@
             const list = log.data || [];
 
             let newQueries = 0, newBlocked = 0, newAllowed = 0, newLatestTime = state.latestTime;
-            const periodStart = Date.now() - STAT_PERIOD_HOURS * 3600 * 1000;
 
             for (const e of list) {
                 const timeStr = e.Time || e.time;
                 const t = parseTime(timeStr);
                 if (t > state.latestTime) {
                     newLatestTime = Math.max(newLatestTime, t);
-                    if (t >= periodStart) {
-                        newQueries++;
-                        if (e.Result && e.Result.IsFiltered === true) {
-                            newBlocked++;
-                        } else if (e.Reason && e.Reason.includes('AllowList')) {
-                            newAllowed++;
-                        }
+                    newQueries++;
+                    if (e.Result && e.Result.IsFiltered === true) {
+                        newBlocked++;
+                    } else if (e.Reason && e.Reason.includes('AllowList')) {
+                        newAllowed++;
                     }
                 }
             }
@@ -1080,10 +1067,7 @@
             if (p.lastSeen) el.lastSeen.textContent = formatTime(p.lastSeen);
             if (p.firstSeen) el.firstSeen.textContent = formatTime(p.firstSeen);
 
-            if (p.firstSeen) {
-                const spanHours = (Date.now() - parseTime(p.firstSeen)) / (1000 * 3600);
-                el.actualSpan.textContent = `最近 ${spanHours.toFixed(1)} 小时`;
-            }
+            el.actualSpan.textContent = '最近24小时';
             renderBars(el.pBars);
             renderBars(el.gBars);
         }
@@ -1135,7 +1119,7 @@
                 state.ip = await fetchClientIPFromLucky();
 
                 el.title.textContent = '正在检测…';
-                await Promise.all([initialFetch(state.ip), fetchGlobal()]);
+                await Promise.all([fetchPersonal(state.ip), fetchGlobal()]);
 
                 const threshold = Date.now() - WINDOW_MINS * 60000;
                 const recentlyActive = state.personal.lastSeen && parseTime(state.personal.lastSeen) >= threshold;
