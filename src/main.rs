@@ -5,11 +5,12 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::{
     collections::HashMap,
+    env,
     io::Read,
-    net::{SocketAddr, UdpSocket},
+    net::{IpAddr, SocketAddr, UdpSocket},
     time::Duration,
 };
 
@@ -53,56 +54,108 @@ async fn serve_index() -> Html<&'static str> {
     Html(INDEX_HTML)
 }
 
-fn probe_local_ip(target: &str) -> Option<String> {
-    let socket = UdpSocket::bind(if target.contains('[') || target.contains(':') {
-        "[::]:0"
-    } else {
-        "0.0.0.0:0"
-    })
-    .ok()?;
+/// 通过路由探测获得“本机到目标网络时系统选中的源地址”。
+/// 这不是公网出口 IP，也不一定是浏览器实际使用的地址。
+fn route_source_ip(target: &str, bind_addr: &str) -> Option<IpAddr> {
+    let socket = UdpSocket::bind(bind_addr).ok()?;
     socket.set_write_timeout(Some(Duration::from_secs(1))).ok()?;
     socket.connect(target).ok()?;
-    Some(socket.local_addr().ok()?.ip().to_string())
+    let ip = socket.local_addr().ok()?.ip();
+    if ip.is_unspecified() || ip.is_loopback() {
+        None
+    } else {
+        Some(ip)
+    }
 }
 
-fn get_active_dual_stack_ips() -> Vec<String> {
-    let mut ips = Vec::new();
+fn route_source_ipv4() -> Option<IpAddr> {
+    route_source_ip("223.5.5.5:53", "0.0.0.0:0")
+}
 
-    if let Some(ip) = probe_local_ip("223.5.5.5:53") {
-        if !ip.starts_with("127.") && ip != "0.0.0.0" {
-            ips.push(ip);
-        }
-    }
-    if let Some(ip) = probe_local_ip("[2400:3200::1]:53") {
-        if !ip.starts_with("::") && ip != "::" {
-            ips.push(ip);
-        }
+fn route_source_ipv6() -> Option<IpAddr> {
+    route_source_ip("[2400:3200::1]:53", "[::]:0")
+}
+
+fn trusted_proxy(peer: IpAddr) -> bool {
+    // 只有明确配置在 TRUSTED_PROXY_IPS 中的反向代理才可信。
+    // 例如：TRUSTED_PROXY_IPS=127.0.0.1,::1,192.168.1.10
+    let configured = env::var("TRUSTED_PROXY_IPS").unwrap_or_default();
+    configured
+        .split(',')
+        .map(str::trim)
+        .filter_map(|value| value.parse::<IpAddr>().ok())
+        .any(|ip| ip == peer)
+}
+
+fn parse_forwarded_ip(headers: &HeaderMap, peer: IpAddr) -> Option<IpAddr> {
+    if !trusted_proxy(peer) {
+        return None;
     }
 
-    if ips.is_empty() {
-        ips.push("127.0.0.1".to_string());
-        ips.push("::1".to_string());
-    }
-    ips.sort();
-    ips.dedup();
-    ips
+    // 只在 TCP 对端是显式信任的代理时读取转发头。
+    // 优先 X-Forwarded-For 最左侧地址，再尝试 Cloudflare 专用头。
+    let forwarded = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .and_then(|v| v.trim().parse::<IpAddr>().ok());
+
+    forwarded.or_else(|| {
+        headers
+            .get("cf-connecting-ip")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.trim().parse::<IpAddr>().ok())
+    })
 }
 
 async fn get_client_ip(
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
 ) -> Json<Value> {
-    let mut ips = get_active_dual_stack_ips();
+    let peer_ip = peer.ip();
+    let forwarded_ip = parse_forwarded_ip(&headers, peer_ip);
+    let local_v4 = route_source_ipv4();
+    let local_v6 = route_source_ipv6();
 
-    // 若浏览器直接连接本服务且客户端地址是有效公网/局域网地址，也将其纳入候选。
-    let peer = addr.ip();
-    if !peer.is_unspecified() && !peer.is_loopback() {
-        let peer_string = peer.to_string();
-        if !ips.contains(&peer_string) {
-            ips.push(peer_string);
-        }
+    // query_ips 是查询 AdGuard Home 日志时使用的候选地址，不宣称每个地址都一定出现在日志中。
+    // 这些地址是本机路由源地址；可信代理来源仅在明确配置 TRUSTED_PROXY_IPS 时加入。
+    let mut query_ips: Vec<String> = Vec::new();
+    if let Some(ip) = local_v4 {
+        query_ips.push(ip.to_string());
+    }
+    if let Some(ip) = local_v6 {
+        query_ips.push(ip.to_string());
+    }
+    if let Some(ip) = forwarded_ip {
+        query_ips.push(ip.to_string());
     }
 
-    Json(serde_json::json!({ "ips": ips }))
+    // 代理通过本机重定向 53 端口时，AdGuard Home 可能记录回环地址，
+    // 也可能记录 VPN/网络接口地址。它们是日志匹配候选，不是公网出口 IP。
+    query_ips.push("127.0.0.1".to_string());
+    query_ips.push("::1".to_string());
+
+    // 如果页面从局域网另一台设备访问，TCP 对端也可能是日志中的客户端地址。
+    if !peer_ip.is_unspecified() {
+        query_ips.push(peer_ip.to_string());
+    }
+    query_ips.sort();
+    query_ips.dedup();
+
+    let family = match peer_ip {
+        IpAddr::V4(_) => "IPv4",
+        IpAddr::V6(_) => "IPv6",
+    };
+
+    Json(json!({
+        "connection_ip": peer_ip.to_string(),
+        "connection_family": family,
+        "local_ipv4": local_v4.map(|ip| ip.to_string()),
+        "local_ipv6": local_v6.map(|ip| ip.to_string()),
+        "forwarded_ip": forwarded_ip.map(|ip| ip.to_string()),
+        "trusted_proxy": trusted_proxy(peer_ip),
+        "query_ips": query_ips
+    }))
 }
 
 async fn proxy_api(
@@ -121,12 +174,12 @@ async fn proxy_api(
         }
         Ok(Err(message)) => (
             StatusCode::BAD_GATEWAY,
-            Json(serde_json::json!({ "error": message })),
+            Json(json!({ "error": message })),
         )
             .into_response(),
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("代理任务失败：{error}") })),
+            Json(json!({ "error": format!("代理任务失败：{error}") })),
         )
             .into_response(),
     }
@@ -143,7 +196,7 @@ fn proxy_api_blocking(
         .build();
 
     let login_url = format!("{AGH_URL}/control/login");
-    let login_body = serde_json::json!({
+    let login_body = json!({
         "name": AGH_USER,
         "password": AGH_PASS
     });
@@ -171,7 +224,7 @@ fn proxy_api_blocking(
 
     let mut url = format!("{AGH_URL}/control/{path}");
     if !query.is_empty() {
-        let encoded: String = query
+        let encoded = query
             .iter()
             .map(|(key, value)| {
                 format!(
@@ -205,8 +258,7 @@ fn proxy_api_blocking(
         Err(error) => return Err(format!("请求 AdGuard Home API 失败：{error}")),
     };
 
-    let status = StatusCode::from_u16(response.status())
-        .unwrap_or(StatusCode::OK);
+    let status = StatusCode::from_u16(response.status()).unwrap_or(StatusCode::OK);
     let content_type = response
         .header("content-type")
         .unwrap_or("application/json; charset=utf-8")
