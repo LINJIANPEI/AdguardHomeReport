@@ -1,111 +1,128 @@
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::thread;
+use axum::{
+    extract::{ConnectInfo, Path, Query},
+    http::{HeaderMap, StatusCode},
+    response::{Html, IntoResponse, Response},
+    routing::get,
+    Router,
+};
+use std::collections::HashMap;
+use std::net::{SocketAddr, UdpSocket};
 
+// 将前端网页直接打包进二进制文件中
 const INDEX_HTML: &str = include_str!("../web/index.html");
-const AGH_PORT: u16 = 3000;
 
-fn main() {
-    // 🔴 监听 0.0.0.0，允许局域网内的其他设备访问
-    let listener = TcpListener::bind("0.0.0.0:8080").unwrap();
-    println!("Server running on http://0.0.0.0:8080");
+// AdGuard 的本机地址与账号密码
+const AGH_URL: &str = "http://127.0.0.1:3000";
+const AGH_USER: &str = "root";
+const AGH_PASS: &str = "20131400";
 
-    for stream in listener.incoming() {
-        if let Ok(stream) = stream {
-            thread::spawn(|| {
-                handle_connection(stream);
-            });
+#[tokio::main]
+async fn main() {
+    let app = Router::new()
+        .route("/", get(serve_index))
+        .route("/api/local-ip", get(get_local_ip))
+        .route("/api/client-ip", get(get_client_ip)) // 新增：获取当前访问者 IP
+        .route("/control/*path", get(proxy_api).post(proxy_api));
+
+    // ⚠️ 监听 0.0.0.0 允许局域网内其他设备访问，端口设为 8888
+    let addr = SocketAddr::from(([0, 0, 0, 0], 8888));
+    
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(l) => l,
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            eprintln!("❌ 启动失败: 端口 8888 已被占用！");
+            eprintln!("👉 请先执行 'killall dns-report' 杀掉旧进程。");
+            return;
         }
-    }
+        Err(e) => {
+            eprintln!("❌ 启动失败: {}", e);
+            return;
+        }
+    };
+
+    println!("✅ DNS 战报后端已启动: http://0.0.0.0:{}", 8888);
+    println!("👉 手机访问: http://127.0.0.1:8888");
+    println!("👉 局域网访问: http://<你的手机局域网IP>:8888");
+
+    // 必须使用 into_make_service_with_connect_info 才能获取客户端真实 IP
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
 }
 
-fn handle_connection(mut client: TcpStream) {
-    // 获取真实客户端的 IP 地址
-    let client_ip = client
-        .peer_addr()
-        .map(|addr| addr.ip().to_string())
-        .unwrap_or_else(|_| "127.0.0.1".to_string());
-    // 清理 IPv6 映射的 IPv4 格式 (如 ::ffff:192.168.1.100 -> 192.168.1.100)
-    let clean_ip = client_ip
-        .strip_prefix("::ffff:")
-        .unwrap_or(&client_ip)
-        .to_string();
+// 返回打包好的 HTML
+async fn serve_index() -> Html<&'static str> {
+    Html(INDEX_HTML)
+}
 
-    let mut buffer = [0; 4096];
-    if client.read(&mut buffer).unwrap_or(0) == 0 {
-        return;
-    }
-    let req_str = String::from_utf8_lossy(&buffer);
-
-    let first_line = req_str.lines().next().unwrap_or("");
-    let path = first_line.split_whitespace().nth(1).unwrap_or("/");
-
-    // 处理首页请求
-    if path == "/" || path == "/index.html" {
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-            INDEX_HTML.len(),
-            INDEX_HTML
-        );
-        let _ = client.write_all(response.as_bytes());
-        return;
-    }
-
-    // 🔴 新增接口：告诉前端当前访问者的真实 IP
-    if path == "/api/myip" {
-        let body = format!(r#"{{"ip":"{}"}}"#, clean_ip);
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-            body.len(),
-            body
-        );
-        let _ = client.write_all(response.as_bytes());
-        return;
-    }
-
-    // 处理反向代理请求
-    if path.starts_with("/control/") {
-        // 1. 登录获取 Cookie
-        let mut agh_conn = TcpStream::connect(format!("127.0.0.1:{}", AGH_PORT)).unwrap();
-        let login_body = r#"{"name":"root","password":"20131400"}"#;
-        let login_req = format!(
-            "POST /control/login HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
-            AGH_PORT, login_body.len(), login_body
-        );
-        let _ = agh_conn.write_all(login_req.as_bytes());
-
-        let mut agh_buf = [0; 4096];
-        let n = agh_conn.read(&mut agh_buf).unwrap_or(0);
-        let login_resp = String::from_utf8_lossy(&agh_buf[..n]);
-
-        let mut cookie = String::new();
-        for line in login_resp.lines() {
-            if line.to_lowercase().starts_with("set-cookie:") {
-                cookie = line["set-cookie:".len()..]
-                    .split(';')
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                break;
-            }
+// 获取手机自身的局域网 IP
+async fn get_local_ip() -> String {
+    let socket = match UdpSocket::bind("0.0.0.0:0") {
+        Ok(s) => s,
+        Err(_) => return "127.0.0.1".to_string(),
+    };
+    if socket.connect("8.8.8.8:80").is_ok() {
+        if let Ok(addr) = socket.local_addr() {
+            return addr.ip().to_string();
         }
+    }
+    "127.0.0.1".to_string()
+}
 
-        // 2. 请求真实数据
-        let mut data_conn = TcpStream::connect(format!("127.0.0.1:{}", AGH_PORT)).unwrap();
-        let data_req = format!(
-            "GET {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nCookie: {}\r\nConnection: close\r\n\r\n",
-            path, AGH_PORT, cookie
-        );
-        let _ = data_conn.write_all(data_req.as_bytes());
+// 获取当前访问浏览器的局域网 IP
+async fn get_client_ip(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> String {
+    let ip = addr.ip().to_string();
+    if ip.starts_with("::ffff:") {
+        return ip.replace("::ffff:", "");
+    }
+    ip
+}
 
-        let mut data_buf = Vec::new();
-        let _ = data_conn.read_to_end(&mut data_buf);
+// 核心反代：自动登录拿 Cookie -> 转发请求 -> 返回结果
+async fn proxy_api(
+    Path(path): Path<String>, 
+    Query(mut query): Query<HashMap<String, String>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>
+) -> Response {
+    let client_ip = addr.ip().to_string();
+    let client_ip = client_ip.strip_prefix("::ffff:").unwrap_or(&client_ip).to_string();
 
-        let _ = client.write_all(&data_buf);
-        return;
+    // 💡 核心逻辑：如果请求的是 querylog，强制把搜索的 IP 替换为当前访问者的真实 IP
+    if path == "querylog" {
+        query.insert("search".to_string(), client_ip);
     }
 
-    // 404
-    let _ = client.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+    let client = reqwest::Client::builder()
+        .cookie_store(true)
+        .build()
+        .unwrap();
+
+    // 1. 尝试登录获取 Cookie
+    let login_body = serde_json::json!({ "name": AGH_USER, "password": AGH_PASS });
+    let _ = client.post(format!("{}/control/login", AGH_URL))
+        .json(&login_body)
+        .send()
+        .await;
+
+    // 2. 拼接目标 URL
+    let mut url = format!("{}/control/{}", AGH_URL, path);
+    if !query.is_empty() {
+        let qs: Vec<String> = query.iter().map(|(k, v)| format!("{}={}", k, urlencoding::encode(v))).collect();
+        url = format!("{}?{}", url, qs.join("&"));
+    }
+
+    // 3. 请求真实接口
+    let res = client.get(&url).send().await;
+
+    // 4. 返回数据
+    match res {
+        Ok(resp) => {
+            let status = resp.status();
+            let body_bytes = resp.bytes().await.unwrap_or_default();
+            let mut headers = HeaderMap::new();
+            headers.insert("Content-Type", "application/json".parse().unwrap());
+            (status, headers, body_bytes).into_response()
+        }
+        Err(e) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Proxy error: {}", e)).into_response()
+        }
+    }
 }
