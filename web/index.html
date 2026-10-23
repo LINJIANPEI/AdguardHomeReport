@@ -756,8 +756,8 @@
             <div class="brand">
                 <div class="brand-logo">D</div>
                 <div class="brand-text">
-                    <div class="name">DNS 检测 <span style="font-size:9px;color:var(--green);">V8.0</span></div>
-                    <div class="sub">原生 response_status 极速版</div>
+                    <div class="name">DNS 检测 <span style="font-size:9px;color:var(--green);">V8.2</span></div>
+                    <div class="sub">原生接口并发容错版</div>
                 </div>
             </div>
         </div>
@@ -898,6 +898,7 @@
     <script>
         const RING_C = 2 * Math.PI * 44;
         const REFRESH_INTERVAL = 5000;
+        const STAT_PERIOD_HOURS = 24;
         const WINDOW_MINS = 30;
 
         let state = {
@@ -965,36 +966,60 @@
             return cleanIP(text);
         }
 
-        // 核心：直接让 AdGuard 原生按 response_status 过滤，并发请求三次
+        // ✨ 核心修复：加了 catch 兜底，改了 limit，去了 older_than
         async function fetchPersonal(ip) {
-            const base = `/control/querylog?search=${encodeURIComponent(ip)}&older_than=24h&limit=10000`;
+            const periodStart = Date.now() - STAT_PERIOD_HOURS * 3600 * 1000;
+            const base = `/control/querylog?search=${encodeURIComponent(ip)}&limit=5000`;
 
-            const [rAll, rBlocked, rWhite] = await Promise.all([
-                fetch(`${base}&response_status=all`, { cache: 'no-store' }),
-                fetch(`${base}&response_status=blocked`, { cache: 'no-store' }),
-                fetch(`${base}&response_status=whitelisted`, { cache: 'no-store' })
-            ]);
-
-            if (!rAll.ok || !rBlocked.ok || !rWhite.ok) throw new Error('API 响应错误，请检查端口');
+            const fetchLog = async (status) => {
+                let url = base;
+                if (status) url += `&response_status=${status}`;
+                try {
+                    const r = await fetch(url, { cache: 'no-store' });
+                    if (r.status === 401) throw new Error('AUTH');
+                    if (!r.ok) {
+                        console.warn(`请求 response_status=${status} 失败，返回状态码: ${r.status}`);
+                        return { data: [] };
+                    }
+                    return await r.json();
+                } catch (e) {
+                    console.warn(`请求异常: ${e.message}`);
+                    return { data: [] };
+                }
+            };
 
             const [dAll, dBlocked, dWhite] = await Promise.all([
-                rAll.json(), rBlocked.json(), rWhite.json()
+                fetchLog('all'),
+                fetchLog('blocked'),
+                fetchLog('whitelisted')
             ]);
 
-            const allList = dAll.data || [];
-            const blockedList = dBlocked.data || [];
-            const whiteList = dWhite.data || [];
+            function calc24h(log) {
+                let count = 0;
+                const list = log.data || [];
+                for (const e of list) {
+                    const timeStr = e.Time || e.time;
+                    const t = parseTime(timeStr);
+                    if (t < periodStart) break;
+                    count++;
+                }
+                return count;
+            }
+
+            const qCount = calc24h(dAll);
+            const bCount = calc24h(dBlocked);
+            const wCount = calc24h(dWhite);
 
             let lastSeen = null, firstSeen = null;
-            if (allList.length > 0) {
-                lastSeen = allList[0].Time || allList[0].time;
-                firstSeen = allList[allList.length - 1].Time || allList[allList.length - 1].time;
+            if (dAll.data && dAll.data.length > 0) {
+                lastSeen = dAll.data[0].Time || dAll.data[0].time;
+                firstSeen = dAll.data[dAll.data.length - 1].Time || dAll.data[dAll.data.length - 1].time;
             }
 
             state.personal = {
-                queries: allList.length,
-                blocked: blockedList.length,
-                allowed: whiteList.length,
+                queries: qCount,
+                blocked: bCount,
+                allowed: wCount,
                 lastSeen,
                 firstSeen
             };
@@ -1010,17 +1035,20 @@
             const list = log.data || [];
 
             let newQueries = 0, newBlocked = 0, newAllowed = 0, newLatestTime = state.latestTime;
+            const periodStart = Date.now() - STAT_PERIOD_HOURS * 3600 * 1000;
 
             for (const e of list) {
                 const timeStr = e.Time || e.time;
                 const t = parseTime(timeStr);
                 if (t > state.latestTime) {
                     newLatestTime = Math.max(newLatestTime, t);
-                    newQueries++;
-                    if (e.Result && e.Result.IsFiltered === true) {
-                        newBlocked++;
-                    } else if (e.Reason && e.Reason.includes('AllowList')) {
-                        newAllowed++;
+                    if (t >= periodStart) {
+                        newQueries++;
+                        if (e.Result && e.Result.IsFiltered === true) {
+                            newBlocked++;
+                        } else if (e.Reason && e.Reason.includes('AllowList')) {
+                            newAllowed++;
+                        }
                     }
                 }
             }
@@ -1067,7 +1095,10 @@
             if (p.lastSeen) el.lastSeen.textContent = formatTime(p.lastSeen);
             if (p.firstSeen) el.firstSeen.textContent = formatTime(p.firstSeen);
 
-            el.actualSpan.textContent = '最近24小时';
+            if (p.firstSeen) {
+                const spanHours = (Date.now() - parseTime(p.firstSeen)) / (1000 * 3600);
+                el.actualSpan.textContent = `最近 ${spanHours.toFixed(1)} 小时`;
+            }
             renderBars(el.pBars);
             renderBars(el.gBars);
         }
@@ -1143,7 +1174,7 @@
                 } else if (/querylog|stats|client-ip/.test(err.message)) {
                     tip = `<strong>API 请求失败</strong>${err.message}<br>请确认网络是否通畅。`;
                 } else {
-                    tip = `<strong>请求失败</strong>${err.message}</small>`;
+                    tip = `<strong>请求失败</strong>${err.message}`;
                 }
                 showError(tip);
             } finally {
