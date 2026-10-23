@@ -2,8 +2,11 @@ name: Build Rust Binary for Android
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -17,20 +20,14 @@ jobs:
         with:
           targets: aarch64-unknown-linux-musl
 
-      - name: Install musl-tools and aarch64 gcc
+      - name: Build Rust Binary
         run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools gcc-aarch64-linux-gnu
-
-      - name: Build Rust Binary (Static ARM64)
-        run: |
-          # 设置交叉编译器环境变量，确保底层依赖能正确编译
-          export CC_aarch64_unknown_linux_musl=aarch64-linux-gnu-gcc
-          export AR_aarch64_unknown_linux_musl=aarch64-linux-gnu-ar
           cargo build --release --target aarch64-unknown-linux-musl
+          mv target/aarch64-unknown-linux-musl/release/dns-report dns-report-arm64
 
-      - name: Upload Binary Artifact
-        uses: actions/upload-artifact@v4
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: dns-report-binary
-          path: target/aarch64-unknown-linux-musl/release/dns-report
+          tag_name: v1.0.${{ github.run_number }}
+          name: 编译产物 v1.0.${{ github.run_number }}
+          files: dns-report-arm64
