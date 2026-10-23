@@ -61,10 +61,10 @@ footer{text-align:center;color:var(--muted);font-size:12px;margin-top:20px}
       <span class="status"><span class="dot" id="dnsDot"></span><span id="dnsStatus">检测中</span></span>
     </div>
     <div class="grid" style="grid-template-columns:repeat(2,minmax(0,1fr))">
-      <div class="card"><div class="label">当前使用的 IPv4（浏览器出口）</div><div class="value green" style="font-size:17px" id="publicIpv4">检测中…</div><div class="hint">会随浏览器实际使用的 VPN/代理出口变化</div></div>
-      <div class="card"><div class="label">当前使用的 IPv6（浏览器出口）</div><div class="value green" style="font-size:17px" id="publicIpv6">检测中…</div><div class="hint">没有 IPv6 路径或检测失败时显示“不可用”</div></div>
+      <div class="card"><div class="label">当前路由选择的 IPv4</div><div class="value green" style="font-size:17px" id="publicIpv4">检测中…</div><div class="hint">读取系统为 IPv4 路由选择的本地源地址</div></div>
+      <div class="card"><div class="label">当前路由选择的 IPv6</div><div class="value green" style="font-size:17px" id="publicIpv6">检测中…</div><div class="hint">无 IPv6 路由或当前进程无法使用时显示“不可用”</div></div>
     </div>
-    <div class="notice" id="clientNote">以上地址由当前浏览器分别检测；个人战报按可用的 IPv4、IPv6 地址分别查询并直接合并结果，不去重。</div>
+    <div class="notice" id="clientNote">以上地址通过本地路由选择获取，不访问公网 IP 检测网站；地址不一定等于代理服务器的公网出口 IP。</div>
   </section>
 
   <section class="panel">
@@ -108,6 +108,7 @@ const PAGE_SIZE = 1000;
 const MAX_PAGES_PER_STATUS = 10000;
 const $ = id => document.getElementById(id);
 let refreshBusy = false;
+let ipDetectionErrors = [];
 
 function fmt(value) {
   const n = Number(value);
@@ -154,24 +155,18 @@ async function api(path) {
   return response.json();
 }
 async function detectBrowserEgress(family) {
-  // 必须在浏览器端检测；不能用 Rust 主机的路由地址代替手机的出口地址。
-  // api4/api6 强制对应协议族，因此检测结果可分别作为 IPv4/IPv6 日志匹配候选。
-  const target = family === 4
-    ? "https://api4.ipify.org?format=json"
-    : "https://api6.ipify.org?format=json";
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
+  // 通过 Rust 后端读取系统路由选择的本地源地址，不访问公网 IP 检测服务。
+  // 每个协议族独立检测；IPv6 不可用不会阻止 IPv4。
   try {
-    const response = await fetch(target, {cache:"no-store", mode:"cors", signal:controller.signal});
-    if (!response.ok) throw new Error("HTTP " + response.status);
-    const data = await response.json();
+    const data = await api(`/api/local-ip/${family}`);
     const ip = String(data.ip || "").trim();
-    if (!ip) return null;
+    if (!ip) throw new Error("检测接口没有返回 IP");
     return ip;
-  } catch (_) {
+  } catch (error) {
+    const detail = error?.message || String(error);
+    ipDetectionErrors.push(`IPv${family}：${detail}`);
+    console.warn(`IPv${family} 检测失败：`, error);
     return null;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 function displayIp(id, value) {
@@ -246,7 +241,7 @@ async function fetchPersonal(ips) {
     await Promise.all(jobs);
   }
 
-  // 按用户要求：IPv4/IPv6 查询结果直接合并，不做记录去重。
+  // 按用户要求：IPv4/IPv6 查询结果直接合并，不去重。
   const all = allRows.filter(row=>inWindow(row,start,end));
   const blocked = blockedRows.filter(row=>inWindow(row,start,end));
   const white = whiteRows.filter(row=>inWindow(row,start,end));
@@ -284,7 +279,8 @@ async function refresh() {
   refreshBusy = true;
   $("refreshBtn").disabled = true;
   try {
-    // IPv4/IPv6 分别检测；任一地址可用就用该地址查询个人日志。
+    // 本地路由分别探测 IPv4/IPv6；失败时显示“不可用”。
+    ipDetectionErrors = [];
     const [ipv4, ipv6] = await Promise.all([
       detectBrowserEgress(4),
       detectBrowserEgress(6)
@@ -292,8 +288,7 @@ async function refresh() {
     displayIp("publicIpv4", ipv4);
     displayIp("publicIpv6", ipv6);
 
-    // 只用检测到的 IPv4、IPv6 地址查询；没有 IPv6 时自然只查 IPv4。
-    // 不加入服务端网卡/回环候选地址，也不对合并后的日志去重。
+    // 个人战报严格按检测到的 IPv4/IPv6 查询；合并结果时不去重。
     const ips = [ipv4, ipv6]
       .filter(value => typeof value === "string" && value.trim())
       .map(value => value.trim());
@@ -302,13 +297,14 @@ async function refresh() {
       ["pTotal","pBlocked","pAllowList","pAllowed"].forEach(id=>setText(id,"—"));
       setText("pLatest","—");
       setText("pActive","—");
-      setText("personalNote","没有取得可用于匹配的地址，暂时无法查询个人日志。请检查服务端、网络或代理设置。");
+      setText("personalNote", "没有取得可用于匹配的地址，暂时无法查询个人日志。" + (ipDetectionErrors.length ? "检测详情：" + ipDetectionErrors.join("；") : "请检查服务端、网络或代理设置。"));
       $("personalNote").className = "notice error";
       setText("dnsStatus","地址检测失败");
       $("dnsDot").className = "dot";
     } else {
-      const egress = [ipv4 ? `IPv4 ${ipv4}` : "IPv4 不可用", ipv6 ? `IPv6 ${ipv6}` : "IPv6 不可用"];
-      setText("clientNote", `用于查询的地址：${egress.join("；")}。个人战报分别查询可用地址并合并结果，不去重。`);
+      const routeIps = [ipv4 ? `IPv4 ${ipv4}` : "IPv4 不可用", ipv6 ? `IPv6 ${ipv6}` : "IPv6 不可用"];
+      const errorHint = ipDetectionErrors.length ? `；检测失败详情：${ipDetectionErrors.join("；")}` : "";
+      setText("clientNote", `当前路由源地址：${routeIps.join("；")}。个人战报按可用的 IPv4/IPv6 分别查询并直接合并，不去重。注意：这是本地路由选择的源地址，不保证是代理公网出口 IP。${errorHint}`);
       await fetchPersonal(ips);
     }
   } catch (e) {
