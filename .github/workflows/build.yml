@@ -43,11 +43,12 @@ jobs:
         run: |
           cargo build --release --target aarch64-unknown-linux-musl
 
+      # 🔴 修改了这里的路径和文件名
       - name: Rename Binary
         run: |
-          mv target/aarch64-unknown-linux-musl/release/dns-report dns-report-arm64
+          mv target/aarch64-unknown-linux-musl/release/AdguardHomeReport AdguardHomeReport
 
-      # 🚀 核心修改：每次使用动态的新标签 (如 v1, v2, v3...)
+      # 🔴 修改了这里上传的文件名
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -56,4 +57,4 @@ jobs:
           draft: false
           prerelease: false
           make_latest: true
-          files: dns-report-arm64
+          files: AdguardHomeReport
