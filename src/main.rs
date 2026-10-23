@@ -17,7 +17,7 @@ const AGH_PASS: &str = "20131400";
 async fn main() {
     let app = Router::new()
         .route("/", get(|| async { Html(INDEX_HTML) }))
-        // 使用 axum 0.7 的路由参数捕获语法
+        // axum 0.7 的通配符路由写法
         .route("/control/*path", get(proxy_api).post(proxy_api));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
