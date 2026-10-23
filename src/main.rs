@@ -24,6 +24,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(serve_index))
         .route("/api/client-ip", get(get_client_ip))
+        .route("/api/local-ip/:family", get(get_local_ip))
         .route("/control/*path", get(proxy_api).post(proxy_api));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8888));
@@ -47,6 +48,29 @@ async fn main() {
     .await
     {
         eprintln!("HTTP 服务退出：{error}");
+    }
+}
+
+
+/// 本地路由探测：通过 UDP socket connect 触发系统路由选择，读取 socket 选中的本地源地址。
+/// 不会向公网 IP 检测网站发送 HTTP 请求；UDP connect 本身不发送 UDP 数据包。
+/// 返回值是系统为该目标路由选择的本地源地址，不保证等于代理服务器的公网出口地址。
+async fn get_local_ip(Path(family): Path<String>) -> Response {
+    let family = match family.as_str() {
+        "4" => 4,
+        "6" => 6,
+        _ => return (StatusCode::BAD_REQUEST, Json(json!({"error":"family 必须是 4 或 6"}))).into_response(),
+    };
+
+    let result = tokio::task::spawn_blocking(move || {
+        let ip = if family == 4 { route_source_ipv4() } else { route_source_ipv6() };
+        ip.ok_or_else(|| format!("没有找到可用的 IPv{family} 路由源地址；可能是该协议无路由、接口不可用，或 Android/VPN 路由未对当前进程开放"))
+    }).await;
+
+    match result {
+        Ok(Ok(ip)) => Json(json!({"ip": ip.to_string(), "family": family, "method": "local_route_source"})).into_response(),
+        Ok(Err(error)) => (StatusCode::BAD_GATEWAY, Json(json!({"error": error}))).into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("本地路由检测任务失败：{error}")}))).into_response(),
     }
 }
 
