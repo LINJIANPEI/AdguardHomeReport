@@ -38,7 +38,6 @@ async fn main() {
 
     println!("✅ DNS 战报后端已启动: http://0.0.0.0:{}", 8888);
 
-    // 注入 ConnectInfo 以获取客户端 IP
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
