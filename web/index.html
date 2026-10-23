@@ -1,748 +1,149 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>DNS 状态检测 · 实时战报</title>
     <style>
         :root {
-            --bg: #070b14;
-            --card: rgba(17, 24, 39, .72);
-            --border: rgba(148, 163, 184, .10);
-            --border-strong: rgba(148, 163, 184, .18);
-            --text: #e5e7eb;
-            --text-dim: #94a3b8;
-            --text-faint: #64748b;
-            --green: #10b981;
-            --green-bg: rgba(16, 185, 129, .10);
-            --amber: #f59e0b;
-            --amber-bg: rgba(245, 158, 11, .10);
-            --red: #ef4444;
-            --red-bg: rgba(239, 68, 68, .10);
-            --blue: #3b82f6;
-            --purple: #8b5cf6;
+            --bg: #070b14; --card: rgba(17, 24, 39, .72); --border: rgba(148, 163, 184, .10);
+            --border-strong: rgba(148, 163, 184, .18); --text: #e5e7eb; --text-dim: #94a3b8;
+            --text-faint: #64748b; --green: #10b981; --green-bg: rgba(16, 185, 129, .10);
+            --amber: #f59e0b; --amber-bg: rgba(245, 158, 11, .10); --red: #ef4444;
+            --red-bg: rgba(239, 68, 68, .10); --blue: #3b82f6; --purple: #8b5cf6;
         }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        html,
-        body {
-            height: 100%;
-        }
-
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
-            -webkit-font-smoothing: antialiased;
-            overflow-x: hidden;
-            position: relative;
-            display: flex;
-            justify-content: center;
-            padding: 24px 14px;
+            background: var(--bg); color: var(--text); min-height: 100vh;
+            -webkit-font-smoothing: antialiased; overflow-x: hidden; position: relative;
+            display: flex; justify-content: center; padding: 24px 14px;
         }
-
-        .bg-layer {
-            position: fixed;
-            inset: 0;
-            z-index: 0;
-            pointer-events: none;
-            overflow: hidden;
-        }
-
+        .bg-layer { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
         .bg-grid {
-            position: absolute;
-            inset: -1px;
+            position: absolute; inset: -1px;
             background-image: linear-gradient(rgba(148, 163, 184, .045) 1px, transparent 1px),
                 linear-gradient(90deg, rgba(148, 163, 184, .045) 1px, transparent 1px);
             background-size: 44px 44px;
             mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 40%, transparent 100%);
             -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 40%, transparent 100%);
         }
-
-        .bg-glow {
-            position: absolute;
-            border-radius: 50%;
-            filter: blur(90px);
-            opacity: .55;
-            animation: float 14s ease-in-out infinite;
-        }
-
-        .bg-glow.a {
-            width: 420px;
-            height: 420px;
-            top: -140px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: radial-gradient(circle, rgba(59, 130, 246, .35), transparent 70%);
-        }
-
-        .bg-glow.b {
-            width: 360px;
-            height: 360px;
-            bottom: -120px;
-            right: -80px;
-            background: radial-gradient(circle, rgba(16, 185, 129, .22), transparent 70%);
-            animation-delay: -5s;
-        }
-
-        @keyframes float {
-
-            0%,
-            100% {
-                transform: translateY(0) scale(1);
-            }
-
-            50% {
-                transform: translateY(-24px) scale(1.06);
-            }
-        }
-
-        .wrap {
-            position: relative;
-            z-index: 1;
-            width: 100%;
-            max-width: 480px;
-        }
-
-        .topbar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 18px;
-            padding: 0 4px;
-        }
-
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .brand-logo {
-            width: 34px;
-            height: 34px;
-            border-radius: 10px;
-            background: linear-gradient(135deg, var(--blue), var(--purple));
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 17px;
-            font-weight: 800;
-            color: #fff;
-            box-shadow: 0 8px 22px rgba(59, 130, 246, .35);
-        }
-
-        .brand-text .name {
-            font-size: 14px;
-            font-weight: 650;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .brand-text .sub {
-            font-size: 10px;
-            color: var(--text-faint);
-            margin-top: 2px;
-        }
+        .bg-glow { position: absolute; border-radius: 50%; filter: blur(90px); opacity: .55; animation: float 14s ease-in-out infinite; }
+        .bg-glow.a { width: 420px; height: 420px; top: -140px; left: 50%; transform: translateX(-50%); background: radial-gradient(circle, rgba(59, 130, 246, .35), transparent 70%); }
+        .bg-glow.b { width: 360px; height: 360px; bottom: -120px; right: -80px; background: radial-gradient(circle, rgba(16, 185, 129, .22), transparent 70%); animation-delay: -5s; }
+        @keyframes float { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-24px) scale(1.06); } }
+        
+        .wrap { position: relative; z-index: 1; width: 100%; max-width: 480px; }
+        .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; padding: 0 4px; }
+        .brand { display: flex; align-items: center; gap: 10px; }
+        .brand-logo { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, var(--blue), var(--purple)); display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 800; color: #fff; box-shadow: 0 8px 22px rgba(59, 130, 246, .35); }
+        .brand-text .name { font-size: 14px; font-weight: 650; display: flex; align-items: center; gap: 6px; }
+        .brand-text .sub { font-size: 10px; color: var(--text-faint); margin-top: 2px; }
 
         .card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 20px;
-            padding: 24px 18px 20px;
-            backdrop-filter: blur(18px) saturate(140%);
+            background: var(--card); border: 1px solid var(--border); border-radius: 20px;
+            padding: 24px 18px 20px; backdrop-filter: blur(18px) saturate(140%);
             -webkit-backdrop-filter: blur(18px) saturate(140%);
             box-shadow: 0 30px 80px rgba(0, 0, 0, .55), 0 0 0 1px rgba(255, 255, 255, .02) inset;
-            position: relative;
-            overflow: hidden;
-            text-align: center;
-        }
-
-        .card::before {
-            content: "";
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(59, 130, 246, .8), transparent);
-        }
-
-        .status-orb {
-            position: relative;
-            width: 96px;
-            height: 96px;
-            margin: 0 auto 16px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .orb-ring {
-            position: absolute;
-            inset: 0;
-            border-radius: 50%;
-            border: 1px solid var(--border-strong);
-        }
-
-        .orb-ring.outer {
-            inset: -12px;
-            border-style: dashed;
-            opacity: .5;
-            animation: rotateSlow 30s linear infinite;
-        }
-
-        @keyframes rotateSlow {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        .orb-core {
-            width: 74px;
-            height: 74px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 32px;
-            font-weight: 800;
-            position: relative;
-            z-index: 2;
-            transition: all .4s cubic-bezier(.34, 1.56, .64, 1);
-        }
-
-        .status-orb.loading .orb-core {
-            background: linear-gradient(145deg, #1e293b, #0f172a);
-            color: var(--text-dim);
-        }
-
-        .status-orb.loading .orb-ring.inner {
-            position: absolute;
-            inset: 0;
-            border-radius: 50%;
-            border: 2px solid transparent;
-            border-top-color: var(--blue);
-            border-right-color: rgba(59, 130, 246, .3);
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        .status-orb.active .orb-core {
-            background: radial-gradient(circle at 30% 30%, rgba(16, 185, 129, .28), rgba(16, 185, 129, .06));
-            color: var(--green);
-            box-shadow: 0 0 0 6px rgba(16, 185, 129, .08), 0 0 40px rgba(16, 185, 129, .28);
-        }
-
-        .status-orb.active .orb-ring.inner {
-            position: absolute;
-            inset: -6px;
-            border-radius: 50%;
-            border: 1px solid var(--green);
-            opacity: .55;
-            animation: ripple 2.4s ease-out infinite;
-        }
-
-        .status-orb.active .orb-ring.inner2 {
-            position: absolute;
-            inset: -6px;
-            border-radius: 50%;
-            border: 1px solid var(--green);
-            opacity: .35;
-            animation: ripple 2.4s ease-out infinite;
-            animation-delay: 1.2s;
-        }
-
-        @keyframes ripple {
-            0% {
-                transform: scale(1);
-                opacity: .55;
-            }
-
-            100% {
-                transform: scale(1.9);
-                opacity: 0;
-            }
-        }
-
-        .status-orb.inactive .orb-core {
-            background: radial-gradient(circle at 30% 30%, rgba(245, 158, 11, .25), rgba(245, 158, 11, .05));
-            color: var(--amber);
-        }
-
-        .status-orb.error .orb-core {
-            background: radial-gradient(circle at 30% 30%, rgba(239, 68, 68, .25), rgba(239, 68, 68, .05));
-            color: var(--red);
-        }
-
-        h1 {
-            font-size: 20px;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-
-        .status-tag {
-            display: inline-block;
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            padding: 3px 10px;
-            border-radius: 6px;
-            margin-bottom: 10px;
-            text-transform: uppercase;
-        }
-
-        .status-tag.active {
-            color: var(--green);
-            background: var(--green-bg);
-            border: 1px solid rgba(16, 185, 129, .22);
-        }
-
-        .status-tag.inactive {
-            color: var(--amber);
-            background: var(--amber-bg);
-            border: 1px solid rgba(245, 158, 11, .22);
-        }
-
-        .status-tag.error {
-            color: var(--red);
-            background: var(--red-bg);
-            border: 1px solid rgba(239, 68, 68, .22);
-        }
-
-        .status-tag.loading {
-            color: var(--text-dim);
-            background: rgba(148, 163, 184, .08);
-            border: 1px solid var(--border);
-        }
-
-        .desc {
-            font-size: 12.5px;
-            line-height: 1.6;
-            color: var(--text-dim);
-            max-width: 300px;
-            margin: 0 auto;
-        }
-
-        .error-banner {
-            margin-top: 14px;
-            padding: 10px 12px;
-            border-radius: 8px;
-            background: rgba(239, 68, 68, .08);
-            border: 1px solid rgba(239, 68, 68, .25);
-            font-size: 11.5px;
-            line-height: 1.5;
-            color: #fca5a5;
-            text-align: left;
-            display: none;
-        }
-
-        .error-banner.show {
-            display: block;
-        }
-
-        .error-banner strong {
-            color: #f87171;
-            display: block;
-            margin-bottom: 4px;
-            font-size: 12px;
-        }
-
-        .section-title {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin: 22px 0 12px;
-            font-size: 10.5px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            color: var(--text-faint);
-            text-transform: uppercase;
-        }
-
-        .section-title::before,
-        .section-title::after {
-            content: "";
-            flex: 1;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, var(--border), transparent);
-        }
-
-        .rate-panel {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 16px 14px;
-            background: rgba(15, 23, 42, .4);
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            margin-bottom: 12px;
-            gap: 10px;
-        }
-
-        .ring-wrap {
-            position: relative;
-            width: 90px;
-            height: 90px;
-            flex-shrink: 0;
-        }
-
-        .ring-svg {
-            transform: rotate(-90deg);
-        }
-
-        .ring-bg {
-            fill: none;
-            stroke: rgba(148, 163, 184, .10);
-            stroke-width: 8;
-        }
-
-        .ring-fg {
-            fill: none;
-            stroke: url(#ringGrad);
-            stroke-width: 8;
-            stroke-linecap: round;
-            transition: stroke-dashoffset 1s;
-        }
-
-        .ring-center {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .ring-value {
-            font-size: 18px;
-            font-weight: 800;
-            font-family: ui-monospace, monospace;
-            color: var(--green);
-            line-height: 1;
-        }
-
-        .ring-label {
-            font-size: 10px;
-            color: var(--text-faint);
-            margin-top: 4px;
-        }
-
-        .rate-info {
-            text-align: left;
-            flex: 1;
-            min-width: 0;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-        }
-
-        .rate-info-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 12px;
-            padding: 6px 0;
-        }
-
-        .rate-info-row+.rate-info-row {
-            border-top: 1px dashed rgba(148, 163, 184, .10);
-        }
-
-        .rate-info-label {
-            color: var(--text-faint);
-        }
-
-        .rate-info-value {
-            font-family: ui-monospace, monospace;
-            font-size: 13px;
-            font-weight: 700;
-        }
-
-        .rate-info-value.amber {
-            color: var(--amber);
-        }
-
-        .rate-info-value.green {
-            color: var(--green);
-        }
-
-        .stat-cards {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-top: 6px;
-        }
-
-        .stat-card {
-            background: rgba(15, 23, 42, .45);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 12px 12px 10px;
-            text-align: left;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .stat-card-head {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            margin-bottom: 10px;
-        }
-
-        .stat-icon {
-            width: 20px;
-            height: 20px;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-        }
-
-        .stat-icon svg {
-            width: 11px;
-            height: 11px;
-            stroke-width: 2.4;
-            fill: none;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-        }
-
-        .stat-icon.blue {
-            background: rgba(59, 130, 246, .14);
-            color: var(--blue);
-        }
-
-        .stat-icon.purple {
-            background: rgba(139, 92, 246, .14);
-            color: var(--purple);
-        }
-
-        .stat-card-title {
-            font-size: 10.5px;
-            font-weight: 700;
-            letter-spacing: .5px;
-            color: var(--text-faint);
-            text-transform: uppercase;
-        }
-
-        .stat-big {
-            font-family: ui-monospace, monospace;
-            font-size: 22px;
-            font-weight: 800;
-            line-height: 1.1;
-            display: flex;
-            align-items: baseline;
-            gap: 3px;
-            flex-wrap: wrap;
-            word-break: break-all;
-        }
-
-        .stat-big .unit {
-            font-family: -apple-system, sans-serif;
-            font-size: 11px;
-            font-weight: 600;
-            color: var(--text-faint);
-        }
-
-        .stat-sub {
-            font-size: 10.5px;
-            color: var(--text-faint);
-            margin-top: 4px;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .stat-sub .dot {
-            width: 4px;
-            height: 4px;
-            border-radius: 50%;
-            background: currentColor;
-            opacity: .7;
-        }
-
-        .stat-sub.green {
-            color: var(--green);
-        }
-
-        .stat-sub.amber {
-            color: var(--amber);
-        }
-
-        .mini-bars {
-            display: flex;
-            align-items: flex-end;
-            gap: 2px;
-            height: 20px;
-            margin-top: 10px;
-            opacity: .8;
-        }
-
-        .mini-bars span {
-            flex: 1;
-            border-radius: 1.5px;
-            min-height: 4px;
-            transition: height .6s ease;
-        }
-
-        .mini-bars.blue span {
-            background: linear-gradient(180deg, rgba(59, 130, 246, .8), rgba(59, 130, 246, .2));
-        }
-
-        .mini-bars.purple span {
-            background: linear-gradient(180deg, rgba(139, 92, 246, .8), rgba(139, 92, 246, .2));
-        }
-
-        .meta-table {
-            margin-top: 16px;
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            overflow: hidden;
-            background: rgba(15, 23, 42, .35);
-        }
-
-        .meta-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 14px;
-            font-size: 12px;
-            gap: 10px;
-        }
-
-        .meta-row+.meta-row {
-            border-top: 1px solid rgba(148, 163, 184, .06);
-        }
-
-        .meta-label {
-            color: var(--text-faint);
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            flex-shrink: 0;
-        }
-
-        .meta-label svg {
-            width: 12px;
-            height: 12px;
-            stroke-width: 2;
-            fill: none;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-        }
-
-        .meta-value {
-            font-family: ui-monospace, monospace;
-            font-size: 12px;
-            text-align: right;
-            word-break: break-all;
-        }
-
-        .meta-value.green {
-            color: var(--green);
-            font-weight: 600;
-        }
-
-        .meta-value.dim {
-            color: var(--text-dim);
-        }
-
-        .actions {
-            margin-top: 18px;
-            display: flex;
-            gap: 10px;
-        }
-
-        .btn {
-            flex: 1;
-            padding: 12px 16px;
-            border-radius: 10px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            transition: all .2s;
-            border: none;
-            background: linear-gradient(135deg, var(--blue), var(--purple));
-            color: #fff;
-            box-shadow: 0 6px 20px rgba(59, 130, 246, .3);
-        }
-
-        .btn:active {
-            transform: scale(.98);
-        }
-
-        .btn svg {
-            width: 14px;
-            height: 14px;
-            stroke-width: 2.2;
-            fill: none;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-        }
-
-        .btn.spinning svg {
-            animation: spin 1s linear infinite;
-        }
-
-        .footer {
-            margin-top: 18px;
-            text-align: center;
-            font-size: 10.5px;
-            color: var(--text-faint);
-            line-height: 1.6;
-        }
-
-        .fade-up {
-            opacity: 0;
-            transform: translateY(10px);
-            animation: fadeUp .5s ease forwards;
-        }
-
-        @keyframes fadeUp {
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .d1 {
-            animation-delay: .05s;
-        }
-
-        .d2 {
-            animation-delay: .1s;
-        }
-
-        .d3 {
-            animation-delay: .15s;
-        }
-
-        .d4 {
-            animation-delay: .2s;
-        }
+            position: relative; overflow: hidden; text-align: center;
+        }
+        .card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(59, 130, 246, .8), transparent); }
+
+        .status-orb { position: relative; width: 96px; height: 96px; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; }
+        .orb-ring { position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--border-strong); }
+        .orb-ring.outer { inset: -12px; border-style: dashed; opacity: .5; animation: rotateSlow 30s linear infinite; }
+        @keyframes rotateSlow { to { transform: rotate(360deg); } }
+        .orb-core { width: 74px; height: 74px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: 800; position: relative; z-index: 2; transition: all .4s cubic-bezier(.34, 1.56, .64, 1); }
+        .status-orb.loading .orb-core { background: linear-gradient(145deg, #1e293b, #0f172a); color: var(--text-dim); }
+        .status-orb.loading .orb-ring.inner { position: absolute; inset: 0; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--blue); border-right-color: rgba(59, 130, 246, .3); animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .status-orb.active .orb-core { background: radial-gradient(circle at 30% 30%, rgba(16, 185, 129, .28), rgba(16, 185, 129, .06)); color: var(--green); box-shadow: 0 0 0 6px rgba(16, 185, 129, .08), 0 0 40px rgba(16, 185, 129, .28); }
+        .status-orb.active .orb-ring.inner { position: absolute; inset: -6px; border-radius: 50%; border: 1px solid var(--green); opacity: .55; animation: ripple 2.4s ease-out infinite; }
+        .status-orb.active .orb-ring.inner2 { position: absolute; inset: -6px; border-radius: 50%; border: 1px solid var(--green); opacity: .35; animation: ripple 2.4s ease-out infinite; animation-delay: 1.2s; }
+        @keyframes ripple { 0% { transform: scale(1); opacity: .55; } 100% { transform: scale(1.9); opacity: 0; } }
+        .status-orb.inactive .orb-core { background: radial-gradient(circle at 30% 30%, rgba(245, 158, 11, .25), rgba(245, 158, 11, .05)); color: var(--amber); }
+        .status-orb.error .orb-core { background: radial-gradient(circle at 30% 30%, rgba(239, 68, 68, .25), rgba(239, 68, 68, .05)); color: var(--red); }
+
+        h1 { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+        .status-tag { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 1px; padding: 3px 10px; border-radius: 6px; margin-bottom: 10px; text-transform: uppercase; }
+        .status-tag.active { color: var(--green); background: var(--green-bg); border: 1px solid rgba(16, 185, 129, .22); }
+        .status-tag.inactive { color: var(--amber); background: var(--amber-bg); border: 1px solid rgba(245, 158, 11, .22); }
+        .status-tag.error { color: var(--red); background: var(--red-bg); border: 1px solid rgba(239, 68, 68, .22); }
+        .status-tag.loading { color: var(--text-dim); background: rgba(148, 163, 184, .08); border: 1px solid var(--border); }
+        .desc { font-size: 12.5px; line-height: 1.6; color: var(--text-dim); max-width: 300px; margin: 0 auto; }
+        .error-banner { margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: rgba(239, 68, 68, .08); border: 1px solid rgba(239, 68, 68, .25); font-size: 11.5px; line-height: 1.5; color: #fca5a5; text-align: left; display: none; }
+        .error-banner.show { display: block; }
+        .error-banner strong { color: #f87171; display: block; margin-bottom: 4px; font-size: 12px; }
+
+        .section-title { display: flex; align-items: center; gap: 10px; margin: 22px 0 12px; font-size: 10.5px; font-weight: 700; letter-spacing: 1px; color: var(--text-faint); text-transform: uppercase; }
+        .section-title::before, .section-title::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); }
+
+        /* 环形图区域居中 */
+        .rate-panel { display: flex; align-items: center; justify-content: center; padding: 16px 14px; background: rgba(15, 23, 42, .4); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 12px; gap: 24px; }
+        .ring-wrap { position: relative; width: 90px; height: 90px; flex-shrink: 0; }
+        .ring-svg { transform: rotate(-90deg); }
+        .ring-bg { fill: none; stroke: rgba(148, 163, 184, .10); stroke-width: 8; }
+        .ring-fg { fill: none; stroke: url(#ringGrad); stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 1s; }
+        .ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .ring-value { font-size: 18px; font-weight: 800; font-family: ui-monospace, monospace; color: var(--green); line-height: 1; }
+        .ring-label { font-size: 10px; color: var(--text-faint); margin-top: 4px; }
+        
+        .rate-info { text-align: left; flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+        .rate-info-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 6px 0; }
+        .rate-info-row + .rate-info-row { border-top: 1px dashed rgba(148, 163, 184, .10); }
+        .rate-info-label { color: var(--text-faint); }
+        .rate-info-value { font-family: ui-monospace, monospace; font-size: 13px; font-weight: 700; }
+        .rate-info-value.amber { color: var(--amber); }
+        .rate-info-value.green { color: var(--green); }
+
+        /* 卡片强制对齐 */
+        .stat-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+        .stat-card { 
+            background: rgba(15, 23, 42, .45); border: 1px solid var(--border); border-radius: 12px; 
+            padding: 12px 12px 10px; text-align: left; position: relative; overflow: hidden;
+            display: flex; flex-direction: column;
+        }
+        .stat-card-head { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+        .stat-icon { width: 20px; height: 20px; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .stat-icon svg { width: 11px; height: 11px; stroke-width: 2.4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+        .stat-icon.blue { background: rgba(59, 130, 246, .14); color: var(--blue); }
+        .stat-icon.purple { background: rgba(139, 92, 246, .14); color: var(--purple); }
+        .stat-card-title { font-size: 10.5px; font-weight: 700; letter-spacing: .5px; color: var(--text-faint); text-transform: uppercase; }
+        .stat-big { font-family: ui-monospace, monospace; font-size: 22px; font-weight: 800; line-height: 1.1; display: flex; align-items: baseline; gap: 3px; flex-wrap: wrap; word-break: break-all; margin-bottom: 2px;}
+        .stat-big .unit { font-family: -apple-system, sans-serif; font-size: 11px; font-weight: 600; color: var(--text-faint); }
+        .stat-sub { font-size: 10.5px; color: var(--text-faint); margin-top: 4px; display: flex; align-items: center; gap: 4px; }
+        .stat-sub .dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: .7; }
+        .stat-sub.green { color: var(--green); }
+        .stat-sub.amber { color: var(--amber); }
+        
+        /* 柱子推到最底下 */
+        .mini-bars { display: flex; align-items: flex-end; gap: 2px; height: 20px; margin-top: auto; padding-top: 10px; opacity: .8; }
+        .mini-bars span { flex: 1; border-radius: 1.5px; min-height: 4px; transition: height .6s ease; }
+        .mini-bars.blue span { background: linear-gradient(180deg, rgba(59, 130, 246, .8), rgba(59, 130, 246, .2)); }
+        .mini-bars.purple span { background: linear-gradient(180deg, rgba(139, 92, 246, .8), rgba(139, 92, 246, .2)); }
+
+        .meta-table { margin-top: 16px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: rgba(15, 23, 42, .35); }
+        .meta-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; font-size: 12px; gap: 10px; }
+        .meta-row + .meta-row { border-top: 1px solid rgba(148, 163, 184, .06); }
+        .meta-label { color: var(--text-faint); display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+        .meta-label svg { width: 12px; height: 12px; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+        .meta-value { font-family: ui-monospace, monospace; font-size: 12px; text-align: right; word-break: break-all; }
+        .meta-value.green { color: var(--green); font-weight: 600; }
+        .meta-value.dim { color: var(--text-dim); }
+
+        .actions { margin-top: 18px; display: flex; gap: 10px; }
+        .btn { flex: 1; padding: 12px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: all .2s; border: none; background: linear-gradient(135deg, var(--blue), var(--purple)); color: #fff; box-shadow: 0 6px 20px rgba(59, 130, 246, .3); }
+        .btn:active { transform: scale(.98); }
+        .btn svg { width: 14px; height: 14px; stroke-width: 2.2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+        .btn.spinning svg { animation: spin 1s linear infinite; }
+
+        .footer { margin-top: 18px; text-align: center; font-size: 10.5px; color: var(--text-faint); line-height: 1.6; }
+        .fade-up { opacity: 0; transform: translateY(10px); animation: fadeUp .5s ease forwards; }
+        @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+        .d1 { animation-delay: .05s; } .d2 { animation-delay: .1s; } .d3 { animation-delay: .15s; } .d4 { animation-delay: .2s; }
     </style>
 </head>
-
 <body>
 
     <div class="bg-layer">
@@ -756,8 +157,8 @@
             <div class="brand">
                 <div class="brand-logo">D</div>
                 <div class="brand-text">
-                    <div class="name">DNS 检测 <span style="font-size:9px;color:var(--green);">V8.2</span></div>
-                    <div class="sub">原生接口并发容错版</div>
+                    <div class="name">DNS 检测 <span style="font-size:9px;color:var(--green);">V8.3</span></div>
+                    <div class="sub">完美居中原生版</div>
                 </div>
             </div>
         </div>
@@ -787,8 +188,7 @@
                                 </linearGradient>
                             </defs>
                             <circle class="ring-bg" cx="52" cy="52" r="44" />
-                            <circle class="ring-fg" id="ringFg" cx="52" cy="52" r="44" stroke-dasharray="276.46"
-                                stroke-dashoffset="276.46" />
+                            <circle class="ring-fg" id="ringFg" cx="52" cy="52" r="44" stroke-dasharray="276.46" stroke-dashoffset="276.46" />
                         </svg>
                         <div class="ring-center">
                             <div class="ring-value" id="ringValue">—</div>
@@ -796,12 +196,9 @@
                         </div>
                     </div>
                     <div class="rate-info">
-                        <div class="rate-info-row"><span class="rate-info-label">解析量</span><span class="rate-info-value"
-                                id="riQueries">—</span></div>
-                        <div class="rate-info-row"><span class="rate-info-label">拦截量</span><span
-                                class="rate-info-value amber" id="riBlocked">—</span></div>
-                        <div class="rate-info-row"><span class="rate-info-label">放行量</span><span
-                                class="rate-info-value green" id="riPassed">—</span></div>
+                        <div class="rate-info-row"><span class="rate-info-label">解析量</span><span class="rate-info-value" id="riQueries">—</span></div>
+                        <div class="rate-info-row"><span class="rate-info-label">拦截量</span><span class="rate-info-value amber" id="riBlocked">—</span></div>
+                        <div class="rate-info-row"><span class="rate-info-label">放行量</span><span class="rate-info-value green" id="riPassed">—</span></div>
                     </div>
                 </div>
 
@@ -810,68 +207,44 @@
                     <div class="stat-card">
                         <div class="stat-card-head">
                             <div class="stat-icon blue">
-                                <svg viewBox="0 0 24 24">
-                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                                    <circle cx="12" cy="7" r="4" />
-                                </svg>
+                                <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
                             </div>
                             <div class="stat-card-title">我的战报</div>
                         </div>
                         <div class="stat-big"><span id="pQueries">—</span><span class="unit">次</span></div>
-                        <div class="stat-sub amber" style="margin-top:6px;"><span class="dot"></span>拦截 <span
-                                id="pBlocked">—</span> 次</div>
-                        <div class="stat-sub green" style="margin-top:2px;"><span class="dot"></span>放行 <span
-                                id="pAllowList">—</span> 次</div>
+                        <div class="stat-sub amber" style="margin-top:4px;"><span class="dot"></span>拦截 <span id="pBlocked">—</span> 次</div>
+                        <div class="stat-sub green" style="margin-top:2px;"><span class="dot"></span>放行 <span id="pAllowList">—</span> 次</div>
                         <div class="mini-bars blue" id="pBars"></div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-card-head">
                             <div class="stat-icon purple">
-                                <svg viewBox="0 0 24 24">
-                                    <circle cx="12" cy="12" r="10" />
-                                    <path d="M2 12h20" />
-                                    <path
-                                        d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                                </svg>
+                                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>
                             </div>
                             <div class="stat-card-title">全站数据</div>
                         </div>
                         <div class="stat-big"><span id="gQueries">—</span><span class="unit">次</span></div>
-                        <div class="stat-sub amber" style="margin-top:6px;"><span class="dot"></span>拦截 <span
-                                id="gBlocked">—</span> 次</div>
-                        <div class="stat-sub green" style="margin-top:2px;"><span class="dot"></span>放行 <span
-                                id="gAllowList">—</span> 次</div>
+                        <div class="stat-sub amber" style="margin-top:4px;"><span class="dot"></span>拦截 <span id="gBlocked">—</span> 次</div>
+                        <div class="stat-sub green" style="margin-top:2px;"><span class="dot"></span>放行 <span id="gAllowList">—</span> 次</div>
                         <div class="mini-bars purple" id="gBars"></div>
                     </div>
                 </div>
 
                 <div class="meta-table fade-up d4">
                     <div class="meta-row">
-                        <span class="meta-label"><svg viewBox="0 0 24 24">
-                                <rect x="2" y="3" width="20" height="14" rx="2" />
-                                <path d="M8 21h8M12 17v4" />
-                            </svg>客户端 IP</span>
+                        <span class="meta-label"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></svg>客户端 IP</span>
                         <span class="meta-value" id="clientIP">—</span>
                     </div>
                     <div class="meta-row">
-                        <span class="meta-label"><svg viewBox="0 0 24 24">
-                                <circle cx="12" cy="12" r="9" />
-                                <path d="M12 7v5l3 2" />
-                            </svg>检测时间</span>
+                        <span class="meta-label"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>检测时间</span>
                         <span class="meta-value dim" id="checkedAt">—</span>
                     </div>
                     <div class="meta-row">
-                        <span class="meta-label"><svg viewBox="0 0 24 24">
-                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                                <polyline points="22 4 12 14.01 9 11.01" />
-                            </svg>最近查询</span>
+                        <span class="meta-label"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>最近查询</span>
                         <span class="meta-value green" id="lastSeen">—</span>
                     </div>
                     <div class="meta-row">
-                        <span class="meta-label"><svg viewBox="0 0 24 24">
-                                <circle cx="12" cy="12" r="10" />
-                                <polyline points="12 6 12 12 16 14" />
-                            </svg>最早查询</span>
+                        <span class="meta-label"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14" /></svg>最早查询</span>
                         <span class="meta-value dim" id="firstSeen">—</span>
                     </div>
                 </div>
@@ -879,12 +252,7 @@
 
             <div class="actions fade-up d4">
                 <button class="btn" id="retryBtn">
-                    <svg viewBox="0 0 24 24">
-                        <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-                        <path d="M21 3v5h-5" />
-                        <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-                        <path d="M3 21v-5h5" />
-                    </svg>
+                    <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /><path d="M3 21v-5h5" /></svg>
                     重新检测
                 </button>
             </div>
@@ -898,7 +266,7 @@
     <script>
         const RING_C = 2 * Math.PI * 44;
         const REFRESH_INTERVAL = 5000;
-        const STAT_PERIOD_HOURS = 24;
+        const STAT_PERIOD_HOURS = 24; 
         const WINDOW_MINS = 30;
 
         let state = {
@@ -907,24 +275,24 @@
             global: { queries: 0, blocked: 0, allowed: 0 },
             latestTime: 0,
         };
-
+        
         const el = {
             statusOrb: document.getElementById('statusOrb'), orbCore: document.getElementById('orbCore'),
             statusTag: document.getElementById('statusTag'), title: document.getElementById('title'), desc: document.getElementById('desc'),
             errorBanner: document.getElementById('errorBanner'), content: document.getElementById('content'),
             ringFg: document.getElementById('ringFg'), ringValue: document.getElementById('ringValue'),
             riQueries: document.getElementById('riQueries'), riBlocked: document.getElementById('riBlocked'),
-            riPassed: document.getElementById('riPassed'),
+            riPassed: document.getElementById('riPassed'), 
             pQueries: document.getElementById('pQueries'), pBlocked: document.getElementById('pBlocked'), pAllowList: document.getElementById('pAllowList'),
             pBars: document.getElementById('pBars'),
             gQueries: document.getElementById('gQueries'), gBlocked: document.getElementById('gBlocked'), gAllowList: document.getElementById('gAllowList'),
-            gBars: document.getElementById('gBars'),
+            gBars: document.getElementById('gBars'), 
             clientIP: document.getElementById('clientIP'),
             checkedAt: document.getElementById('checkedAt'), lastSeen: document.getElementById('lastSeen'),
             firstSeen: document.getElementById('firstSeen'), actualSpan: document.getElementById('actualSpan'),
             retryBtn: document.getElementById('retryBtn'),
         };
-
+        
         function parseTime(iso) {
             if (!iso) return 0;
             const cleanIso = String(iso).replace(/(\.\d{3})\d+/, '$1');
@@ -938,7 +306,7 @@
             const cleanIso = String(iso).replace(/(\.\d{3})\d+/, '$1');
             const d = new Date(cleanIso);
             if (isNaN(d.getTime())) return '—';
-            return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
+            return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`;
         }
 
         function showError(html) { el.errorBanner.innerHTML = html; el.errorBanner.classList.add('show'); }
@@ -958,7 +326,7 @@
             el.ringFg.style.strokeDashoffset = RING_C * (1 - Math.min(rate, 1));
             el.ringValue.textContent = q > 0 ? (rate * 100).toFixed(1) + '%' : '—';
         }
-
+        
         async function fetchClientIPFromLucky() {
             const r = await fetch('/api/client-ip', { cache: 'no-store' });
             if (!r.ok) throw new Error('client-ip HTTP ' + r.status);
@@ -966,14 +334,11 @@
             return cleanIP(text);
         }
 
-        // ✨ 核心修复：加了 catch 兜底，改了 limit，去了 older_than
         async function fetchPersonal(ip) {
             const periodStart = Date.now() - STAT_PERIOD_HOURS * 3600 * 1000;
-            const base = `/control/querylog?search=${encodeURIComponent(ip)}&limit=5000`;
-
+            
             const fetchLog = async (status) => {
-                let url = base;
-                if (status) url += `&response_status=${status}`;
+                const url = `/control/querylog?search=${encodeURIComponent(ip)}&limit=3000&response_status=${status}`;
                 try {
                     const r = await fetch(url, { cache: 'no-store' });
                     if (r.status === 401) throw new Error('AUTH');
@@ -989,8 +354,8 @@
             };
 
             const [dAll, dBlocked, dWhite] = await Promise.all([
-                fetchLog('all'),
-                fetchLog('blocked'),
+                fetchLog('all'), 
+                fetchLog('blocked'), 
                 fetchLog('whitelisted')
             ]);
 
@@ -1000,7 +365,7 @@
                 for (const e of list) {
                     const timeStr = e.Time || e.time;
                     const t = parseTime(timeStr);
-                    if (t < periodStart) break;
+                    if (t < periodStart) break; 
                     count++;
                 }
                 return count;
@@ -1023,7 +388,7 @@
                 lastSeen,
                 firstSeen
             };
-
+            
             state.latestTime = lastSeen ? parseTime(lastSeen) : Date.now();
             return state.personal;
         }
@@ -1033,7 +398,7 @@
             if (!rLog.ok) return;
             const log = await rLog.json();
             const list = log.data || [];
-
+            
             let newQueries = 0, newBlocked = 0, newAllowed = 0, newLatestTime = state.latestTime;
             const periodStart = Date.now() - STAT_PERIOD_HOURS * 3600 * 1000;
 
@@ -1202,5 +567,4 @@
         setInterval(silentRefresh, REFRESH_INTERVAL);
     </script>
 </body>
-
 </html>
