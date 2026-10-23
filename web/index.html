@@ -384,13 +384,13 @@
         .rate-panel {
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: center;
             padding: 16px 14px;
             background: rgba(15, 23, 42, .4);
             border: 1px solid var(--border);
             border-radius: 14px;
             margin-bottom: 12px;
-            gap: 10px;
+            gap: 24px;
         }
 
         .ring-wrap {
@@ -495,6 +495,8 @@
             text-align: left;
             position: relative;
             overflow: hidden;
+            display: flex;
+            flex-direction: column;
         }
 
         .stat-card-head {
@@ -551,6 +553,7 @@
             gap: 3px;
             flex-wrap: wrap;
             word-break: break-all;
+            margin-bottom: 2px;
         }
 
         .stat-big .unit {
@@ -561,12 +564,13 @@
         }
 
         .stat-sub {
-            font-size: 10.5px;
+            font-size: 11px;
             color: var(--text-faint);
-            margin-top: 4px;
+            margin-top: 5px;
             display: flex;
             align-items: center;
             gap: 4px;
+            font-weight: 600;
         }
 
         .stat-sub .dot {
@@ -590,7 +594,8 @@
             align-items: flex-end;
             gap: 2px;
             height: 20px;
-            margin-top: 10px;
+            margin-top: auto;
+            padding-top: 10px;
             opacity: .8;
         }
 
@@ -756,8 +761,8 @@
             <div class="brand">
                 <div class="brand-logo">D</div>
                 <div class="brand-text">
-                    <div class="name">DNS 检测 <span style="font-size:9px;color:var(--green);">V8.2</span></div>
-                    <div class="sub">原生接口并发容错版</div>
+                    <div class="name">DNS 检测 <span style="font-size:9px;color:var(--green);">V10.3</span></div>
+                    <div class="sub">双栈出口 IP 叠加版</div>
                 </div>
             </div>
         </div>
@@ -798,9 +803,9 @@
                     <div class="rate-info">
                         <div class="rate-info-row"><span class="rate-info-label">解析量</span><span class="rate-info-value"
                                 id="riQueries">—</span></div>
-                        <div class="rate-info-row"><span class="rate-info-label">拦截量</span><span
+                        <div class="rate-info-row"><span class="rate-info-label">拦截量(次)</span><span
                                 class="rate-info-value amber" id="riBlocked">—</span></div>
-                        <div class="rate-info-row"><span class="rate-info-label">放行量</span><span
+                        <div class="rate-info-row"><span class="rate-info-label">放行量(次)</span><span
                                 class="rate-info-value green" id="riPassed">—</span></div>
                     </div>
                 </div>
@@ -818,10 +823,8 @@
                             <div class="stat-card-title">我的战报</div>
                         </div>
                         <div class="stat-big"><span id="pQueries">—</span><span class="unit">次</span></div>
-                        <div class="stat-sub amber" style="margin-top:6px;"><span class="dot"></span>拦截 <span
-                                id="pBlocked">—</span> 次</div>
-                        <div class="stat-sub green" style="margin-top:2px;"><span class="dot"></span>放行 <span
-                                id="pAllowList">—</span> 次</div>
+                        <div class="stat-sub amber"><span class="dot"></span>拦截 <span id="pBlocked">—</span> 次</div>
+                        <div class="stat-sub green"><span class="dot"></span>放行 <span id="pAllowList">—</span> 次</div>
                         <div class="mini-bars blue" id="pBars"></div>
                     </div>
                     <div class="stat-card">
@@ -837,10 +840,8 @@
                             <div class="stat-card-title">全站数据</div>
                         </div>
                         <div class="stat-big"><span id="gQueries">—</span><span class="unit">次</span></div>
-                        <div class="stat-sub amber" style="margin-top:6px;"><span class="dot"></span>拦截 <span
-                                id="gBlocked">—</span> 次</div>
-                        <div class="stat-sub green" style="margin-top:2px;"><span class="dot"></span>放行 <span
-                                id="gAllowList">—</span> 次</div>
+                        <div class="stat-sub amber"><span class="dot"></span>拦截 <span id="gBlocked">—</span> 次</div>
+                        <div class="stat-sub green"><span class="dot"></span>放行 <span id="gAllowList">—</span> 次</div>
                         <div class="mini-bars purple" id="gBars"></div>
                     </div>
                 </div>
@@ -902,7 +903,7 @@
         const WINDOW_MINS = 30;
 
         let state = {
-            ip: '',
+            ips: [],
             personal: { queries: 0, blocked: 0, allowed: 0, lastSeen: null, firstSeen: null },
             global: { queries: 0, blocked: 0, allowed: 0 },
             latestTime: 0,
@@ -959,108 +960,90 @@
             el.ringValue.textContent = q > 0 ? (rate * 100).toFixed(1) + '%' : '—';
         }
 
-        async function fetchClientIPFromLucky() {
+        async function fetchAllClientIPs() {
             const r = await fetch('/api/client-ip', { cache: 'no-store' });
             if (!r.ok) throw new Error('client-ip HTTP ' + r.status);
-            const text = await r.text();
-            return cleanIP(text);
+            const j = await r.json();
+            return j.ips || [];
         }
 
-        // ✨ 核心修复：加了 catch 兜底，改了 limit，去了 older_than
-        async function fetchPersonal(ip) {
+        // 核心：利用双栈真实 IP 并发查询叠加
+        async function fetchPersonal(ips) {
             const periodStart = Date.now() - STAT_PERIOD_HOURS * 3600 * 1000;
-            const base = `/control/querylog?search=${encodeURIComponent(ip)}&limit=5000`;
 
-            const fetchLog = async (status) => {
-                let url = base;
-                if (status) url += `&response_status=${status}`;
+            const fetchLog = async (searchIp, status) => {
+                const url = `/control/querylog?search=${encodeURIComponent(searchIp)}&limit=3000&response_status=${status}`;
                 try {
                     const r = await fetch(url, { cache: 'no-store' });
                     if (r.status === 401) throw new Error('AUTH');
-                    if (!r.ok) {
-                        console.warn(`请求 response_status=${status} 失败，返回状态码: ${r.status}`);
-                        return { data: [] };
-                    }
+                    if (!r.ok) return { data: [] };
                     return await r.json();
                 } catch (e) {
-                    console.warn(`请求异常: ${e.message}`);
                     return { data: [] };
                 }
             };
 
-            const [dAll, dBlocked, dWhite] = await Promise.all([
-                fetchLog('all'),
-                fetchLog('blocked'),
-                fetchLog('whitelisted')
-            ]);
+            const promises = [];
+            for (const ip of ips) {
+                promises.push(fetchLog(ip, 'all'));
+                promises.push(fetchLog(ip, 'blocked'));
+                promises.push(fetchLog(ip, 'whitelisted'));
+            }
 
-            function calc24h(log) {
-                let count = 0;
-                const list = log.data || [];
+            const results = await Promise.all(promises);
+
+            let allList = [], blockedList = [], whiteList = [];
+            for (let i = 0; i < results.length; i += 3) {
+                allList = allList.concat(results[i].data || []);
+                blockedList = blockedList.concat(results[i + 1].data || []);
+                whiteList = whiteList.concat(results[i + 2].data || []);
+            }
+
+            // 多 IP 去重合并
+            const unique = (list) => {
+                const map = new Map();
                 for (const e of list) {
-                    const timeStr = e.Time || e.time;
-                    const t = parseTime(timeStr);
+                    const key = (e.Time || e.time) + (e.Question?.Name || '');
+                    if (!map.has(key)) map.set(key, e);
+                }
+                return Array.from(map.values());
+            };
+
+            const allU = unique(allList);
+            const blockedU = unique(blockedList);
+            const whiteU = unique(whiteList);
+
+            function calc24h(list) {
+                let count = 0;
+                const sorted = list.sort((a, b) => parseTime(b.Time || b.time) - parseTime(a.Time || a.time));
+                for (const e of sorted) {
+                    const t = parseTime(e.Time || e.time);
                     if (t < periodStart) break;
                     count++;
                 }
-                return count;
+                return { count, sorted };
             }
 
-            const qCount = calc24h(dAll);
-            const bCount = calc24h(dBlocked);
-            const wCount = calc24h(dWhite);
+            const resAll = calc24h(allU);
+            const resBlocked = calc24h(blockedU);
+            const resWhite = calc24h(whiteU);
 
             let lastSeen = null, firstSeen = null;
-            if (dAll.data && dAll.data.length > 0) {
-                lastSeen = dAll.data[0].Time || dAll.data[0].time;
-                firstSeen = dAll.data[dAll.data.length - 1].Time || dAll.data[dAll.data.length - 1].time;
+            if (resAll.sorted.length > 0) {
+                lastSeen = resAll.sorted[0].Time || resAll.sorted[0].time;
+                firstSeen = resAll.sorted[resAll.sorted.length - 1].Time || resAll.sorted[resAll.sorted.length - 1].time;
             }
 
             state.personal = {
-                queries: qCount,
-                blocked: bCount,
-                allowed: wCount,
+                queries: resAll.count,
+                blocked: resBlocked.count,
+                allowed: resWhite.count,
                 lastSeen,
                 firstSeen
             };
 
             state.latestTime = lastSeen ? parseTime(lastSeen) : Date.now();
             return state.personal;
-        }
-
-        async function incrementalRefresh(ip) {
-            const rLog = await fetch(`/control/querylog?search=${encodeURIComponent(ip)}&limit=100`, { cache: 'no-store' });
-            if (!rLog.ok) return;
-            const log = await rLog.json();
-            const list = log.data || [];
-
-            let newQueries = 0, newBlocked = 0, newAllowed = 0, newLatestTime = state.latestTime;
-            const periodStart = Date.now() - STAT_PERIOD_HOURS * 3600 * 1000;
-
-            for (const e of list) {
-                const timeStr = e.Time || e.time;
-                const t = parseTime(timeStr);
-                if (t > state.latestTime) {
-                    newLatestTime = Math.max(newLatestTime, t);
-                    if (t >= periodStart) {
-                        newQueries++;
-                        if (e.Result && e.Result.IsFiltered === true) {
-                            newBlocked++;
-                        } else if (e.Reason && e.Reason.includes('AllowList')) {
-                            newAllowed++;
-                        }
-                    }
-                }
-            }
-
-            if (newQueries > 0) {
-                state.personal.queries += newQueries;
-                state.personal.blocked += newBlocked;
-                state.personal.allowed += newAllowed;
-                state.personal.lastSeen = new Date(newLatestTime).toISOString();
-                state.latestTime = newLatestTime;
-                updateNumbersOnly();
-            }
         }
 
         async function fetchGlobal() {
@@ -1089,7 +1072,8 @@
             el.gBlocked.textContent = fmtNum(g.blocked);
             el.gAllowList.textContent = fmtNum(g.allowed);
 
-            el.clientIP.textContent = state.ip;
+            // 把拿到的当前真实双栈 IP 都显示出来
+            el.clientIP.textContent = state.ips.join(' / ');
             el.checkedAt.textContent = formatTime(new Date().toISOString());
 
             if (p.lastSeen) el.lastSeen.textContent = formatTime(p.lastSeen);
@@ -1121,6 +1105,7 @@
 
             el.checkedAt.textContent = formatTime(new Date().toISOString());
             if (p.lastSeen) el.lastSeen.textContent = formatTime(p.lastSeen);
+            if (p.firstSeen) el.firstSeen.textContent = formatTime(p.firstSeen);
         }
 
         function render(status, message) {
@@ -1147,10 +1132,10 @@
             el.title.textContent = '正在获取 IP…';
 
             try {
-                state.ip = await fetchClientIPFromLucky();
+                state.ips = await fetchAllClientIPs();
 
                 el.title.textContent = '正在检测…';
-                await Promise.all([fetchPersonal(state.ip), fetchGlobal()]);
+                await Promise.all([fetchPersonal(state.ips), fetchGlobal()]);
 
                 const threshold = Date.now() - WINDOW_MINS * 60000;
                 const recentlyActive = state.personal.lastSeen && parseTime(state.personal.lastSeen) >= threshold;
@@ -1184,10 +1169,10 @@
 
         let isRefreshing = false;
         async function silentRefresh() {
-            if (isRefreshing || !state.ip) return;
+            if (isRefreshing || state.ips.length === 0) return;
             isRefreshing = true;
             try {
-                await Promise.all([incrementalRefresh(state.ip), fetchGlobal()]);
+                await Promise.all([fetchPersonal(state.ips), fetchGlobal()]);
                 updateNumbersOnly();
             } catch (err) {
                 console.warn('静默刷新失败', err);

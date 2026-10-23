@@ -3,8 +3,9 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::get,
-    Router,
+    Json, Router,
 };
+use serde_json::json;
 use std::collections::HashMap;
 use std::io::Read;
 use std::net::{SocketAddr, UdpSocket};
@@ -36,7 +37,6 @@ async fn main() {
     };
 
     println!("✅ DNS 战报后端已启动: http://0.0.0.0:8888");
-
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
@@ -49,28 +49,59 @@ async fn serve_index() -> Html<&'static str> {
     Html(INDEX_HTML)
 }
 
-fn get_real_lan_ip() -> String {
-    if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
-        if socket.connect("223.5.5.5:53").is_ok() {
+// 获取系统当前真正在用的出口 IPv4 和 IPv6
+fn get_active_dual_stack_ips() -> Vec<String> {
+    let mut ips = Vec::new();
+
+    // 1. 探测当前出口 IPv6
+    if let Ok(socket) = UdpSocket::bind("[::]:0") {
+        if socket.connect("[2400:3200::1]:53").is_ok() {
+            // 阿里 DNS IPv6
             if let Ok(addr) = socket.local_addr() {
                 let ip = addr.ip().to_string();
-                if ip != "0.0.0.0" && ip != "127.0.0.1" {
-                    return ip;
+                if ip != "::" && ip != "::1" && !ip.starts_with("fe80") {
+                    ips.push(ip);
                 }
             }
         }
     }
-    "127.0.0.1".to_string()
+
+    // 2. 探测当前出口 IPv4
+    if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("223.5.5.5:53").is_ok() {
+            // 阿里 DNS IPv4
+            if let Ok(addr) = socket.local_addr() {
+                let ip = addr.ip().to_string();
+                if ip != "0.0.0.0" && ip != "127.0.0.1" {
+                    ips.push(ip);
+                }
+            }
+        }
+    }
+
+    // 如果是手机本机访问（没有通过局域网的物理 IP 连进来），则返回探测到的真实 IP
+    if ips.is_empty() {
+        ips.push("127.0.0.1".to_string());
+        ips.push("::1".to_string());
+    }
+
+    ips
 }
 
-async fn get_client_ip(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> String {
+async fn get_client_ip(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> Json<serde_json::Value> {
+    let mut ips = Vec::new();
     let ip = addr.ip().to_string();
     let clean_ip = ip.strip_prefix("::ffff:").unwrap_or(&ip).to_string();
 
-    if clean_ip == "127.0.0.1" || clean_ip == "::1" {
-        return get_real_lan_ip();
+    // 如果是局域网其他设备访问（比如电脑），直接给它自己的 IP
+    if clean_ip != "127.0.0.1" && clean_ip != "::1" {
+        ips.push(clean_ip);
+    } else {
+        // 如果是本机访问，返回当前正在使用的 IPv4 和 IPv6
+        ips = get_active_dual_stack_ips();
     }
-    clean_ip
+
+    Json(json!({ "ips": ips }))
 }
 
 async fn proxy_api(
@@ -78,7 +109,6 @@ async fn proxy_api(
     Query(query): Query<HashMap<String, String>>,
     ConnectInfo(_addr): ConnectInfo<SocketAddr>,
 ) -> Response {
-    // 完全信任前端传来的 search 参数（前端传什么就查什么）
     let mut url = format!("{}/control/{}", AGH_URL, path);
     if !query.is_empty() {
         let qs: Vec<String> = query
