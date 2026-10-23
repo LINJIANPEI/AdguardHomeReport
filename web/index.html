@@ -33,7 +33,7 @@
         .bg-glow.a { width: 420px; height: 420px; top: -140px; left: 50%; transform: translateX(-50%); background: radial-gradient(circle, rgba(59, 130, 246, .35), transparent 70%); }
         .bg-glow.b { width: 360px; height: 360px; bottom: -120px; right: -80px; background: radial-gradient(circle, rgba(16, 185, 129, .22), transparent 70%); animation-delay: -5s; }
         @keyframes float { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-24px) scale(1.06); } }
-        
+
         .wrap { position: relative; z-index: 1; width: 100%; max-width: 480px; }
         .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; padding: 0 4px; }
         .brand { display: flex; align-items: center; gap: 10px; }
@@ -79,7 +79,6 @@
         .section-title { display: flex; align-items: center; gap: 10px; margin: 22px 0 12px; font-size: 10.5px; font-weight: 700; letter-spacing: 1px; color: var(--text-faint); text-transform: uppercase; }
         .section-title::before, .section-title::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); }
 
-        /* 环形图区域居中 */
         .rate-panel { display: flex; align-items: center; justify-content: center; padding: 16px 14px; background: rgba(15, 23, 42, .4); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 12px; gap: 24px; }
         .ring-wrap { position: relative; width: 90px; height: 90px; flex-shrink: 0; }
         .ring-svg { transform: rotate(-90deg); }
@@ -88,7 +87,7 @@
         .ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
         .ring-value { font-size: 18px; font-weight: 800; font-family: ui-monospace, monospace; color: var(--green); line-height: 1; }
         .ring-label { font-size: 10px; color: var(--text-faint); margin-top: 4px; }
-        
+
         .rate-info { text-align: left; flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
         .rate-info-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 6px 0; }
         .rate-info-row + .rate-info-row { border-top: 1px dashed rgba(148, 163, 184, .10); }
@@ -97,7 +96,6 @@
         .rate-info-value.amber { color: var(--amber); }
         .rate-info-value.green { color: var(--green); }
 
-        /* 卡片强制对齐 */
         .stat-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
         .stat-card { 
             background: rgba(15, 23, 42, .45); border: 1px solid var(--border); border-radius: 12px; 
@@ -112,12 +110,13 @@
         .stat-card-title { font-size: 10.5px; font-weight: 700; letter-spacing: .5px; color: var(--text-faint); text-transform: uppercase; }
         .stat-big { font-family: ui-monospace, monospace; font-size: 22px; font-weight: 800; line-height: 1.1; display: flex; align-items: baseline; gap: 3px; flex-wrap: wrap; word-break: break-all; margin-bottom: 2px;}
         .stat-big .unit { font-family: -apple-system, sans-serif; font-size: 11px; font-weight: 600; color: var(--text-faint); }
-        .stat-sub { font-size: 10.5px; color: var(--text-faint); margin-top: 4px; display: flex; align-items: center; gap: 4px; }
+        
+        /* 强调拦截次和放行次 */
+        .stat-sub { font-size: 11px; color: var(--text-faint); margin-top: 5px; display: flex; align-items: center; gap: 4px; font-weight: 600;}
         .stat-sub .dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: .7; }
         .stat-sub.green { color: var(--green); }
         .stat-sub.amber { color: var(--amber); }
-        
-        /* 柱子推到最底下 */
+
         .mini-bars { display: flex; align-items: flex-end; gap: 2px; height: 20px; margin-top: auto; padding-top: 10px; opacity: .8; }
         .mini-bars span { flex: 1; border-radius: 1.5px; min-height: 4px; transition: height .6s ease; }
         .mini-bars.blue span { background: linear-gradient(180deg, rgba(59, 130, 246, .8), rgba(59, 130, 246, .2)); }
@@ -157,8 +156,8 @@
             <div class="brand">
                 <div class="brand-logo">D</div>
                 <div class="brand-text">
-                    <div class="name">DNS 检测 <span style="font-size:9px;color:var(--green);">V8.3</span></div>
-                    <div class="sub">完美居中原生版</div>
+                    <div class="name">DNS 检测 <span style="font-size:9px;color:var(--green);">V8.5</span></div>
+                    <div class="sub">黑白名单精准定时版</div>
                 </div>
             </div>
         </div>
@@ -197,8 +196,8 @@
                     </div>
                     <div class="rate-info">
                         <div class="rate-info-row"><span class="rate-info-label">解析量</span><span class="rate-info-value" id="riQueries">—</span></div>
-                        <div class="rate-info-row"><span class="rate-info-label">拦截量</span><span class="rate-info-value amber" id="riBlocked">—</span></div>
-                        <div class="rate-info-row"><span class="rate-info-label">放行量</span><span class="rate-info-value green" id="riPassed">—</span></div>
+                        <div class="rate-info-row"><span class="rate-info-label">拦截量(次)</span><span class="rate-info-value amber" id="riBlocked">—</span></div>
+                        <div class="rate-info-row"><span class="rate-info-label">放行量(次)</span><span class="rate-info-value green" id="riPassed">—</span></div>
                     </div>
                 </div>
 
@@ -212,8 +211,8 @@
                             <div class="stat-card-title">我的战报</div>
                         </div>
                         <div class="stat-big"><span id="pQueries">—</span><span class="unit">次</span></div>
-                        <div class="stat-sub amber" style="margin-top:4px;"><span class="dot"></span>拦截 <span id="pBlocked">—</span> 次</div>
-                        <div class="stat-sub green" style="margin-top:2px;"><span class="dot"></span>放行 <span id="pAllowList">—</span> 次</div>
+                        <div class="stat-sub amber"><span class="dot"></span>拦截 <span id="pBlocked">—</span> 次</div>
+                        <div class="stat-sub green"><span class="dot"></span>放行 <span id="pAllowList">—</span> 次</div>
                         <div class="mini-bars blue" id="pBars"></div>
                     </div>
                     <div class="stat-card">
@@ -224,8 +223,8 @@
                             <div class="stat-card-title">全站数据</div>
                         </div>
                         <div class="stat-big"><span id="gQueries">—</span><span class="unit">次</span></div>
-                        <div class="stat-sub amber" style="margin-top:4px;"><span class="dot"></span>拦截 <span id="gBlocked">—</span> 次</div>
-                        <div class="stat-sub green" style="margin-top:2px;"><span class="dot"></span>放行 <span id="gAllowList">—</span> 次</div>
+                        <div class="stat-sub amber"><span class="dot"></span>拦截 <span id="gBlocked">—</span> 次</div>
+                        <div class="stat-sub green"><span class="dot"></span>放行 <span id="gAllowList">—</span> 次</div>
                         <div class="mini-bars purple" id="gBars"></div>
                     </div>
                 </div>
@@ -275,7 +274,7 @@
             global: { queries: 0, blocked: 0, allowed: 0 },
             latestTime: 0,
         };
-        
+
         const el = {
             statusOrb: document.getElementById('statusOrb'), orbCore: document.getElementById('orbCore'),
             statusTag: document.getElementById('statusTag'), title: document.getElementById('title'), desc: document.getElementById('desc'),
@@ -292,7 +291,7 @@
             firstSeen: document.getElementById('firstSeen'), actualSpan: document.getElementById('actualSpan'),
             retryBtn: document.getElementById('retryBtn'),
         };
-        
+
         function parseTime(iso) {
             if (!iso) return 0;
             const cleanIso = String(iso).replace(/(\.\d{3})\d+/, '$1');
@@ -326,7 +325,7 @@
             el.ringFg.style.strokeDashoffset = RING_C * (1 - Math.min(rate, 1));
             el.ringValue.textContent = q > 0 ? (rate * 100).toFixed(1) + '%' : '—';
         }
-        
+
         async function fetchClientIPFromLucky() {
             const r = await fetch('/api/client-ip', { cache: 'no-store' });
             if (!r.ok) throw new Error('client-ip HTTP ' + r.status);
@@ -336,7 +335,7 @@
 
         async function fetchPersonal(ip) {
             const periodStart = Date.now() - STAT_PERIOD_HOURS * 3600 * 1000;
-            
+
             const fetchLog = async (status) => {
                 const url = `/control/querylog?search=${encodeURIComponent(ip)}&limit=3000&response_status=${status}`;
                 try {
@@ -388,44 +387,9 @@
                 lastSeen,
                 firstSeen
             };
-            
+
             state.latestTime = lastSeen ? parseTime(lastSeen) : Date.now();
             return state.personal;
-        }
-
-        async function incrementalRefresh(ip) {
-            const rLog = await fetch(`/control/querylog?search=${encodeURIComponent(ip)}&limit=100`, { cache: 'no-store' });
-            if (!rLog.ok) return;
-            const log = await rLog.json();
-            const list = log.data || [];
-            
-            let newQueries = 0, newBlocked = 0, newAllowed = 0, newLatestTime = state.latestTime;
-            const periodStart = Date.now() - STAT_PERIOD_HOURS * 3600 * 1000;
-
-            for (const e of list) {
-                const timeStr = e.Time || e.time;
-                const t = parseTime(timeStr);
-                if (t > state.latestTime) {
-                    newLatestTime = Math.max(newLatestTime, t);
-                    if (t >= periodStart) {
-                        newQueries++;
-                        if (e.Result && e.Result.IsFiltered === true) {
-                            newBlocked++;
-                        } else if (e.Reason && e.Reason.includes('AllowList')) {
-                            newAllowed++;
-                        }
-                    }
-                }
-            }
-
-            if (newQueries > 0) {
-                state.personal.queries += newQueries;
-                state.personal.blocked += newBlocked;
-                state.personal.allowed += newAllowed;
-                state.personal.lastSeen = new Date(newLatestTime).toISOString();
-                state.latestTime = newLatestTime;
-                updateNumbersOnly();
-            }
         }
 
         async function fetchGlobal() {
@@ -486,6 +450,7 @@
 
             el.checkedAt.textContent = formatTime(new Date().toISOString());
             if (p.lastSeen) el.lastSeen.textContent = formatTime(p.lastSeen);
+            if (p.firstSeen) el.firstSeen.textContent = formatTime(p.firstSeen);
         }
 
         function render(status, message) {
@@ -552,7 +517,7 @@
             if (isRefreshing || !state.ip) return;
             isRefreshing = true;
             try {
-                await Promise.all([incrementalRefresh(state.ip), fetchGlobal()]);
+                await Promise.all([fetchPersonal(state.ip), fetchGlobal()]);
                 updateNumbersOnly();
             } catch (err) {
                 console.warn('静默刷新失败', err);
