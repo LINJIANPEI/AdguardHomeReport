@@ -17,11 +17,20 @@ jobs:
         with:
           targets: aarch64-unknown-linux-musl
 
-      - name: Install musl-tools
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Install Cross Compiler Toolchain
+        run: |
+          sudo apt-get update
+          # 安装 ARM64 的底层链接库
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          # 安装 musl 基础支持
+          sudo apt-get install -y musl-tools
 
       - name: Build
-        run: cargo build --release --target aarch64-unknown-linux-musl
+        env:
+          # 核心修复：告诉 Cargo 使用 ARM64 架构的 gcc 来链接，而不是默认的 x86 gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          cargo build --release --target aarch64-unknown-linux-musl
 
       - name: Upload
         uses: actions/upload-artifact@v4
