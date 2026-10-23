@@ -6,8 +6,9 @@ const INDEX_HTML: &str = include_str!("../web/index.html");
 const AGH_PORT: u16 = 3000;
 
 fn main() {
-    let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
-    println!("Server running on http://127.0.0.1:8080");
+    // 🔴 监听 0.0.0.0，允许局域网内的其他设备访问
+    let listener = TcpListener::bind("0.0.0.0:8080").unwrap();
+    println!("Server running on http://0.0.0.0:8080");
 
     for stream in listener.incoming() {
         if let Ok(stream) = stream {
@@ -19,18 +20,28 @@ fn main() {
 }
 
 fn handle_connection(mut client: TcpStream) {
+    // 获取真实客户端的 IP 地址
+    let client_ip = client
+        .peer_addr()
+        .map(|addr| addr.ip().to_string())
+        .unwrap_or_else(|_| "127.0.0.1".to_string());
+    // 清理 IPv6 映射的 IPv4 格式 (如 ::ffff:192.168.1.100 -> 192.168.1.100)
+    let clean_ip = client_ip
+        .strip_prefix("::ffff:")
+        .unwrap_or(&client_ip)
+        .to_string();
+
     let mut buffer = [0; 4096];
     if client.read(&mut buffer).unwrap_or(0) == 0 {
         return;
     }
     let req_str = String::from_utf8_lossy(&buffer);
 
-    // 解析请求路径
     let first_line = req_str.lines().next().unwrap_or("");
     let path = first_line.split_whitespace().nth(1).unwrap_or("/");
 
+    // 处理首页请求
     if path == "/" || path == "/index.html" {
-        // 返回 HTML
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             INDEX_HTML.len(),
@@ -40,8 +51,21 @@ fn handle_connection(mut client: TcpStream) {
         return;
     }
 
+    // 🔴 新增接口：告诉前端当前访问者的真实 IP
+    if path == "/api/myip" {
+        let body = format!(r#"{{"ip":"{}"}}"#, clean_ip);
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = client.write_all(response.as_bytes());
+        return;
+    }
+
+    // 处理反向代理请求
     if path.starts_with("/control/") {
-        // 1. 向 AdGuard 登录获取 Cookie
+        // 1. 登录获取 Cookie
         let mut agh_conn = TcpStream::connect(format!("127.0.0.1:{}", AGH_PORT)).unwrap();
         let login_body = r#"{"name":"root","password":"20131400"}"#;
         let login_req = format!(
@@ -54,7 +78,6 @@ fn handle_connection(mut client: TcpStream) {
         let n = agh_conn.read(&mut agh_buf).unwrap_or(0);
         let login_resp = String::from_utf8_lossy(&agh_buf[..n]);
 
-        // 提取 Cookie
         let mut cookie = String::new();
         for line in login_resp.lines() {
             if line.to_lowercase().starts_with("set-cookie:") {
@@ -68,7 +91,7 @@ fn handle_connection(mut client: TcpStream) {
             }
         }
 
-        // 2. 使用 Cookie 请求真实数据
+        // 2. 请求真实数据
         let mut data_conn = TcpStream::connect(format!("127.0.0.1:{}", AGH_PORT)).unwrap();
         let data_req = format!(
             "GET {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nCookie: {}\r\nConnection: close\r\n\r\n",
@@ -79,7 +102,6 @@ fn handle_connection(mut client: TcpStream) {
         let mut data_buf = Vec::new();
         let _ = data_conn.read_to_end(&mut data_buf);
 
-        // 3. 原样返回给浏览器
         let _ = client.write_all(&data_buf);
         return;
     }

@@ -845,7 +845,7 @@
                                 <rect x="2" y="3" width="20" height="14" rx="2" />
                                 <path d="M8 21h8M12 17v4" />
                             </svg>客户端 IP</span>
-                        <span class="meta-value">127.0.0.1 (本机)</span>
+                        <span class="meta-value" id="clientIP">获取中...</span>
                     </div>
                     <div class="meta-row">
                         <span class="meta-label"><svg viewBox="0 0 24 24">
@@ -887,7 +887,8 @@
         const REFRESH_INTERVAL = 5000;
         const STAT_PERIOD_HOURS = 24;
         const WINDOW_MINS = 30;
-        const LOCAL_IP = '127.0.0.1'; // 后端代理后，本地查询的 IP 固定为 127.0.0.1
+
+        let currentIP = '127.0.0.1';
 
         let state = {
             personal: { queries: 0, blocked: 0, lastSeen: null },
@@ -904,8 +905,9 @@
             riPassed: document.getElementById('riPassed'), pQueries: document.getElementById('pQueries'),
             pBlocked: document.getElementById('pBlocked'), pBars: document.getElementById('pBars'),
             gQueries: document.getElementById('gQueries'), gBlocked: document.getElementById('gBlocked'),
-            gBars: document.getElementById('gBars'), checkedAt: document.getElementById('checkedAt'),
-            lastSeen: document.getElementById('lastSeen'), retryBtn: document.getElementById('retryBtn'),
+            gBars: document.getElementById('gBars'), clientIP: document.getElementById('clientIP'),
+            checkedAt: document.getElementById('checkedAt'), lastSeen: document.getElementById('lastSeen'),
+            retryBtn: document.getElementById('retryBtn'),
         };
 
         function parseTime(iso) {
@@ -942,9 +944,19 @@
         }
 
         async function initialFetch() {
+            // 1. 获取真实 IP
+            try {
+                const ipResp = await fetch('/api/myip', { cache: 'no-store' });
+                const ipData = await ipResp.json();
+                currentIP = ipData.ip;
+                el.clientIP.textContent = currentIP;
+            } catch (e) {
+                el.clientIP.textContent = currentIP;
+            }
+
+            // 2. 查询日志
             const periodStart = Date.now() - STAT_PERIOD_HOURS * 3600 * 1000;
-            // 直接请求同源的接口，后端已经处理了认证
-            const rLog = await fetch(`/control/querylog?search=${LOCAL_IP}&limit=100000`, { cache: 'no-store' });
+            const rLog = await fetch(`/control/querylog?search=${encodeURIComponent(currentIP)}&limit=100000`, { cache: 'no-store' });
             if (rLog.status === 401) throw new Error('AUTH');
             const log = await rLog.json();
             const list = log.data || [];
@@ -966,7 +978,7 @@
         }
 
         async function incrementalRefresh() {
-            const rLog = await fetch(`/control/querylog?search=${LOCAL_IP}&limit=100`, { cache: 'no-store' });
+            const rLog = await fetch(`/control/querylog?search=${encodeURIComponent(currentIP)}&limit=100`, { cache: 'no-store' });
             if (!rLog.ok) return;
             const log = await rLog.json();
             const list = log.data || [];
@@ -1064,10 +1076,10 @@
                 const recentlyActive = state.personal.lastSeen && parseTime(state.personal.lastSeen) >= threshold;
 
                 if (state.personal.queries > 0 && recentlyActive) {
-                    render('active', `已检测到你的设备在最近 ${WINDOW_MINS} 分钟内使用本 DNS 解析，广告拦截已启用`);
+                    render('active', `已检测到 ${currentIP} 在最近 ${WINDOW_MINS} 分钟内使用本 DNS 解析，广告拦截已启用`);
                     el.title.textContent = 'DNS 正在生效';
                 } else {
-                    render('inactive', `最近 ${WINDOW_MINS} 分钟内未检测到你的设备使用本 DNS 解析`);
+                    render('inactive', `最近 ${WINDOW_MINS} 分钟内未检测到 ${currentIP} 使用本 DNS 解析`);
                     el.title.textContent = '未检测到使用记录';
                 }
 
@@ -1075,7 +1087,7 @@
             } catch (err) {
                 render('error', '无法完成检测');
                 el.title.textContent = '检测失败';
-                showError(`<strong>API 请求失败</strong>${err.message}<br>请确保 Rust 后端已启动，且 AdGuard 正在运行。`);
+                showError(`<strong>API 请求失败</strong>${err.message}<br>请确保后端已启动，且 AdGuard 正在运行。`);
             } finally {
                 setTimeout(() => el.retryBtn.classList.remove('spinning'), 400);
             }
