@@ -437,7 +437,7 @@
      */
     async function fetchQuerylogPage(search, status, olderThan) {
       const params = new URLSearchParams({ limit: String(PAGE_SIZE), response_status: status });
-      if (search) params.set("search", search);
+      if (search) params.set("search", `"${search}"`);
       if (olderThan) params.set("older_than", olderThan);
       return api("/control/querylog?" + params.toString());
     }
