@@ -24,18 +24,30 @@ jobs:
         with:
           targets: aarch64-unknown-linux-musl
 
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
       - name: Build Rust Binary
         run: |
-          # 1. 正常编译
-          cargo build --release --target aarch64-unknown-linux-musl
-          
-          # 2. 核心：把默认的 dns-report 重命名为 AdguardHomeReport
-          mv target/aarch64-unknown-linux-musl/release/dns-report AdguardHomeReport
+          cargo build --release --locked --target aarch64-unknown-linux-musl
+          ls -lh target/aarch64-unknown-linux-musl/release/
+
+      - name: Verify artifact
+        run: |
+          test -x target/aarch64-unknown-linux-musl/release/AdguardHomeReport
+          file target/aarch64-unknown-linux-musl/release/AdguardHomeReport
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: 编译产物 v1.0.${{ github.run_number }}
-          # 3. 上传重命名后的文件
-          files: AdguardHomeReport
+          files: target/aarch64-unknown-linux-musl/release/AdguardHomeReport
