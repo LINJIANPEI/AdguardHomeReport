@@ -103,10 +103,21 @@
       color: var(--muted)
     }
 
-    .green { color: var(--green) }
-    .red { color: var(--red) }
-    .blue { color: var(--blue) }
-    .yellow { color: var(--yellow) }
+    .green {
+      color: var(--green)
+    }
+
+    .red {
+      color: var(--red)
+    }
+
+    .blue {
+      color: var(--blue)
+    }
+
+    .yellow {
+      color: var(--yellow)
+    }
 
     .panel {
       padding: 18px;
@@ -127,7 +138,9 @@
       margin: 0
     }
 
-    .muted { color: var(--muted) }
+    .muted {
+      color: var(--muted)
+    }
 
     .status {
       display: inline-flex;
@@ -177,8 +190,13 @@
       border-bottom: 1px solid var(--line)
     }
 
-    .row:last-child { border-bottom: 0 }
-    .row strong { font-variant-numeric: tabular-nums }
+    .row:last-child {
+      border-bottom: 0
+    }
+
+    .row strong {
+      font-variant-numeric: tabular-nums
+    }
 
     .notice {
       color: var(--muted);
@@ -186,7 +204,9 @@
       margin-top: 12px
     }
 
-    .error { color: var(--red) }
+    .error {
+      color: var(--red)
+    }
 
     button {
       border: 1px solid #3a4b6c;
@@ -198,7 +218,9 @@
       cursor: pointer
     }
 
-    button:hover { background: #2a4268 }
+    button:hover {
+      background: #2a4268
+    }
 
     footer {
       text-align: center;
@@ -208,15 +230,32 @@
     }
 
     @media(max-width:760px) {
-      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)) }
-      .panel { padding: 14px }
-      main { width: calc(100% - 20px); margin-top: 18px }
+      .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr))
+      }
+
+      .panel {
+        padding: 14px
+      }
+
+      main {
+        width: calc(100% - 20px);
+        margin-top: 18px
+      }
     }
 
     @media(max-width:380px) {
-      .grid { gap: 8px }
-      .card { padding: 12px }
-      .value { font-size: 25px }
+      .grid {
+        gap: 8px
+      }
+
+      .card {
+        padding: 12px
+      }
+
+      .value {
+        font-size: 25px
+      }
     }
   </style>
 </head>
@@ -263,22 +302,22 @@
         <div class="card">
           <div class="label">查询总数</div>
           <div class="value blue" id="pTotal">—</div>
-          <div class="hint">24 小时内记录 (已去重)</div>
+          <div class="hint">个人查询次数</div>
         </div>
         <div class="card">
           <div class="label">拦截数量</div>
           <div class="value red" id="pBlocked">—</div>
-          <div class="hint">被拦截的查询</div>
+          <div class="hint">被拦截的查询次数</div>
         </div>
         <div class="card">
           <div class="label">放行数量</div>
           <div class="value green" id="pAllowList">—</div>
-          <div class="hint">命中白名单的查询</div>
+          <div class="hint">被放行的查询次数</div>
         </div>
         <div class="card">
           <div class="label">未处理数量</div>
           <div class="value yellow" id="pAllowed">—</div>
-          <div class="hint">常规放行的查询</div>
+          <div class="hint">未处理的查询次数</div>
         </div>
       </div>
       <div class="row"><span class="muted">最近一次查询</span><strong id="pLatest">—</strong></div>
@@ -289,33 +328,33 @@
     <section class="panel">
       <div class="panel-head">
         <h2>全站战报</h2>
-        <span class="pill">现存日志统计</span>
+        <span class="pill">全站日志统计</span>
       </div>
       <div class="grid">
         <div class="card">
           <div class="label">全站查询总数</div>
           <div class="value blue" id="gTotal">—</div>
-          <div class="hint">现存日志总记录数</div>
+          <div class="hint">全站查询次数</div>
         </div>
         <div class="card">
           <div class="label">全站拦截数量</div>
           <div class="value red" id="gBlocked">—</div>
-          <div class="hint">现存日志拦截数据</div>
+          <div class="hint">全站被拦截的查询次数</div>
         </div>
         <div class="card">
           <div class="label">全站放行数量</div>
           <div class="value green" id="gAllowList">—</div>
-          <div class="hint">现存日志白名单放行</div>
+          <div class="hint">全站被放行的查询次数</div>
         </div>
         <div class="card">
           <div class="label">全站未处理数量</div>
           <div class="value yellow" id="gAllowed">—</div>
-          <div class="hint">现存日志常规放行</div>
+          <div class="hint">全站未处理的查询次数</div>
         </div>
       </div>
       <div class="notice" id="globalNote">正在读取全站统计…</div>
     </section>
-    <footer>每 5 秒自动刷新 · 个人日志仅统计最近 24 小时</footer>
+    <footer>每 5 秒自动刷新 · 个人日志仅统计最近 24 小时 · 全站数据来自查询日志，受日志保留期限制</footer>
   </main>
 
   <script>
@@ -430,7 +469,7 @@
       }
       return oldest ? oldest.toISOString() : null;
     }
-    
+
     async function fetchAllStatusForIp(ip, status, startMs, endMs) {
       const found = [];
       const seenCursors = new Set();
@@ -439,10 +478,10 @@
         const json = await fetchQuerylogPage(ip, status, cursor);
         const rows = extractData(json);
         if (!rows.length) break;
-        
+
         for (const row of rows) {
           // 【核心修复1】拉取后严格验证 client 字段，彻底杜绝模糊命中 (如搜 1.1 命中 1.10)
-          if (ip && !clientMatches(row, ip)) continue; 
+          if (ip && !clientMatches(row, ip)) continue;
           if (inWindow(row, startMs, endMs)) found.push(row);
         }
 
@@ -509,7 +548,7 @@
 
     async function fetchGlobal() {
       const now = Date.now();
-      
+
       // 【核心修复3】全站不使用 stats，改为分别拉取 all, blocked, whitelisted
       const allRows = await fetchAllStatusForIp("", "all", 0, now);
       const blockedRows = await fetchAllStatusForIp("", "blocked", 0, now);
@@ -566,19 +605,19 @@
         setText("dnsStatus", "检测失败");
         $("dnsDot").className = "dot";
       }
-      
+
       try {
         await fetchGlobal();
       } catch (e) {
         setText("globalNote", "全站数据读取失败：" + e.message);
         $("globalNote").className = "notice error";
       }
-      
+
       setText("lastUpdated", "更新于 " + new Date().toLocaleTimeString("zh-CN", { hour12: false }));
       $("refreshBtn").disabled = false;
       refreshBusy = false;
     }
-    
+
     $("refreshBtn").addEventListener("click", refresh);
     refresh();
     setInterval(refresh, REFRESH_INTERVAL);
