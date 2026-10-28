@@ -1,7 +1,11 @@
 [package]
-name = "dns-report"
+name = "adguard-home-report"      # 保持小写短横线，避免 non-snake-case 警告
 version = "0.1.0"
 edition = "2021"
+
+[[bin]]
+name = "AdguardHomeReport"        # 二进制名，大写可以
+path = "src/main.rs"
 
 [dependencies]
 axum = "0.7"
