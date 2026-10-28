@@ -103,21 +103,10 @@
       color: var(--muted)
     }
 
-    .green {
-      color: var(--green)
-    }
-
-    .red {
-      color: var(--red)
-    }
-
-    .blue {
-      color: var(--blue)
-    }
-
-    .yellow {
-      color: var(--yellow)
-    }
+    .green { color: var(--green) }
+    .red { color: var(--red) }
+    .blue { color: var(--blue) }
+    .yellow { color: var(--yellow) }
 
     .panel {
       padding: 18px;
@@ -138,9 +127,7 @@
       margin: 0
     }
 
-    .muted {
-      color: var(--muted)
-    }
+    .muted { color: var(--muted) }
 
     .status {
       display: inline-flex;
@@ -190,13 +177,8 @@
       border-bottom: 1px solid var(--line)
     }
 
-    .row:last-child {
-      border-bottom: 0
-    }
-
-    .row strong {
-      font-variant-numeric: tabular-nums
-    }
+    .row:last-child { border-bottom: 0 }
+    .row strong { font-variant-numeric: tabular-nums }
 
     .notice {
       color: var(--muted);
@@ -204,9 +186,7 @@
       margin-top: 12px
     }
 
-    .error {
-      color: var(--red)
-    }
+    .error { color: var(--red) }
 
     button {
       border: 1px solid #3a4b6c;
@@ -218,9 +198,7 @@
       cursor: pointer
     }
 
-    button:hover {
-      background: #2a4268
-    }
+    button:hover { background: #2a4268 }
 
     footer {
       text-align: center;
@@ -230,32 +208,15 @@
     }
 
     @media(max-width:760px) {
-      .grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr))
-      }
-
-      .panel {
-        padding: 14px
-      }
-
-      main {
-        width: calc(100% - 20px);
-        margin-top: 18px
-      }
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+      .panel { padding: 14px }
+      main { width: calc(100% - 20px); margin-top: 18px }
     }
 
     @media(max-width:380px) {
-      .grid {
-        gap: 8px
-      }
-
-      .card {
-        padding: 12px
-      }
-
-      .value {
-        font-size: 25px
-      }
+      .grid { gap: 8px }
+      .card { padding: 12px }
+      .value { font-size: 25px }
     }
   </style>
 </head>
@@ -302,7 +263,7 @@
         <div class="card">
           <div class="label">查询总数</div>
           <div class="value blue" id="pTotal">—</div>
-          <div class="hint">24 小时内记录</div>
+          <div class="hint">24 小时内记录 (已去重)</div>
         </div>
         <div class="card">
           <div class="label">拦截数量</div>
@@ -312,12 +273,12 @@
         <div class="card">
           <div class="label">放行数量</div>
           <div class="value green" id="pAllowList">—</div>
-          <div class="hint">被放行的查询</div>
+          <div class="hint">命中白名单的查询</div>
         </div>
         <div class="card">
           <div class="label">未处理数量</div>
           <div class="value yellow" id="pAllowed">—</div>
-          <div class="hint">未处理的查询</div>
+          <div class="hint">常规放行的查询</div>
         </div>
       </div>
       <div class="row"><span class="muted">最近一次查询</span><strong id="pLatest">—</strong></div>
@@ -356,12 +317,13 @@
     </section>
     <footer>每 5 秒自动刷新 · 个人日志仅统计最近 24 小时</footer>
   </main>
+
   <script>
     "use strict";
 
     const STAT_PERIOD_HOURS = 24;
     const WINDOW_MINS = 30;
-    const REFRESH_INTERVAL = 5000;
+    const REFRESH_INTERVAL = 5000; // 5 秒刷新
     const PAGE_SIZE = 1000;
     const MAX_PAGES_PER_STATUS = 10000;
     const $ = id => document.getElementById(id);
@@ -390,9 +352,22 @@
     function clientName(entry) {
       return entry?.client ?? entry?.Client ?? entry?.client_ip ?? entry?.ClientIP ?? "";
     }
+    function normalizeIp(raw) {
+      let s = String(raw || "").trim().toLowerCase();
+      if (s.startsWith("::ffff:")) s = s.slice(7);
+      return s;
+    }
+    function clientMatches(entry, ip) {
+      return normalizeIp(clientName(entry)) === normalizeIp(ip);
+    }
     function entryKey(entry) {
       const d = parseDate(entry);
-      return [d ? d.toISOString() : "", questionName(entry).toLowerCase(), clientName(entry), entry?.question?.type ?? entry?.Question?.Type ?? ""].join("|");
+      return [
+        d ? d.getTime() : (entry.time || entry.timestamp || ""),
+        questionName(entry).toLowerCase(),
+        clientName(entry),
+        entry?.question?.type ?? entry?.Question?.Type ?? ""
+      ].join("|");
     }
     function isBlocked(entry) {
       const result = entry?.result ?? entry?.Result ?? {};
@@ -413,8 +388,6 @@
       return response.json();
     }
     async function detectBrowserEgress(family) {
-      // 通过 Rust 后端读取系统路由选择的本地源地址，不访问公网 IP 检测服务。
-      // 每个协议族独立检测；IPv6 不可用不会阻止 IPv4。
       try {
         const data = await api(`/api/local-ip/${family}`);
         const ip = String(data.ip || "").trim();
@@ -431,13 +404,12 @@
       setText(id, value || "不可用");
     }
 
-    /*
-     * 分页读取单一状态的查询日志。使用响应里的 oldest 作为下一页游标；
-     * 若服务端未返回游标，则退化为按当前页最早时间继续。
-     */
     async function fetchQuerylogPage(search, status, olderThan) {
       const params = new URLSearchParams({ limit: String(PAGE_SIZE), response_status: status });
-      if (search) params.set("search", `"${search}"`);
+      if (search) {
+        // 加上双引号，采用短语搜索
+        params.set("search", `"${String(search).trim()}"`);
+      }
       if (olderThan) params.set("older_than", olderThan);
       return api("/control/querylog?" + params.toString());
     }
@@ -458,6 +430,7 @@
       }
       return oldest ? oldest.toISOString() : null;
     }
+    
     async function fetchAllStatusForIp(ip, status, startMs, endMs) {
       const found = [];
       const seenCursors = new Set();
@@ -466,7 +439,10 @@
         const json = await fetchQuerylogPage(ip, status, cursor);
         const rows = extractData(json);
         if (!rows.length) break;
+        
         for (const row of rows) {
+          // 【核心修复1】拉取后严格验证 client 字段，彻底杜绝模糊命中 (如搜 1.1 命中 1.10)
+          if (ip && !clientMatches(row, ip)) continue; 
           if (inWindow(row, startMs, endMs)) found.push(row);
         }
 
@@ -481,6 +457,7 @@
       }
       return found;
     }
+
     async function fetchPersonal(ips) {
       const now = Date.now();
       const start = now - STAT_PERIOD_HOURS * 60 * 60 * 1000;
@@ -499,10 +476,19 @@
         await Promise.all(jobs);
       }
 
-      // 按用户要求：IPv4/IPv6 查询结果直接合并，不去重。
-      const all = allRows.filter(row => inWindow(row, start, end));
-      const blocked = blockedRows.filter(row => inWindow(row, start, end));
-      const white = whiteRows.filter(row => inWindow(row, start, end));
+      // 【核心修复2】用 entryKey 哈希去重，彻底解决 IPv4/IPv6 结果重叠导致的数据翻倍
+      const uniqueMap = new Map();
+      allRows.forEach(row => uniqueMap.set(entryKey(row), row));
+      const all = Array.from(uniqueMap.values());
+
+      const uniqueBlockedMap = new Map();
+      blockedRows.forEach(row => uniqueBlockedMap.set(entryKey(row), row));
+      const blocked = Array.from(uniqueBlockedMap.values());
+
+      const uniqueWhiteMap = new Map();
+      whiteRows.forEach(row => uniqueWhiteMap.set(entryKey(row), row));
+      const white = Array.from(uniqueWhiteMap.values());
+
       const latest = all.map(parseDate).filter(Boolean).sort((a, b) => b - a)[0];
       const active = all.some(row => inWindow(row, now - WINDOW_MINS * 60 * 1000, now));
 
@@ -515,7 +501,7 @@
       $("pActive").className = active ? "green" : "muted";
       setText("personalNote", errors.length
         ? `部分查询失败：${errors.slice(0, 3).join("；")}${errors.length > 3 ? "…" : ""}`
-        : `已读取 ${ips.length} 个客户端地址。统计区间 ${timeText(new Date(start).toISOString())} 至 ${timeText(new Date(end).toISOString())}。`);
+        : `已读取 ${ips.length} 个客户端地址，严格精确匹配并去重。统计区间 ${timeText(new Date(start).toISOString())} 至 ${timeText(new Date(end).toISOString())}。`);
       $("personalNote").className = "notice" + (errors.length ? " error" : "");
       setText("dnsStatus", active ? "DNS 活跃" : "最近 30 分钟无查询");
       $("dnsDot").className = "dot" + (active ? " live" : "");
@@ -524,22 +510,15 @@
     async function fetchGlobal() {
       const now = Date.now();
       
-      // 不再请求 /control/stats，直接全量拉取现存日志（all 状态）
+      // 【核心修复3】全站不使用 stats，改为分别拉取 all, blocked, whitelisted
       const allRows = await fetchAllStatusForIp("", "all", 0, now);
-      
-      const total = allRows.length;
-      let blocked = 0;
-      let passed = 0;
-      
-      // 在本地遍历一遍，把拦截和白名单数量算出来
-      for (const row of allRows) {
-        if (isBlocked(row)) {
-          blocked++;
-        } else if (isWhitelisted(row)) {
-          passed++;
-        }
-      }
-      
+      const blockedRows = await fetchAllStatusForIp("", "blocked", 0, now);
+      const whiteRows = await fetchAllStatusForIp("", "whitelisted", 0, now);
+
+      // 全站也做一下去重防止游标重试导致的部分重叠
+      const total = new Set(allRows.map(entryKey)).size;
+      const blocked = new Set(blockedRows.map(entryKey)).size;
+      const passed = new Set(whiteRows.map(entryKey)).size;
       const unprocessed = Math.max(0, total - blocked - passed);
 
       setText("gTotal", fmt(total));
@@ -555,7 +534,6 @@
       refreshBusy = true;
       $("refreshBtn").disabled = true;
       try {
-        // 本地路由分别探测 IPv4/IPv6；失败时显示“不可用”。
         ipDetectionErrors = [];
         const [ipv4, ipv6] = await Promise.all([
           detectBrowserEgress(4),
@@ -564,7 +542,6 @@
         displayIp("publicIpv4", ipv4);
         displayIp("publicIpv6", ipv6);
 
-        // 个人战报严格按检测到的 IPv4/IPv6 查询；合并结果时不去重。
         const ips = [ipv4, ipv6]
           .filter(value => typeof value === "string" && value.trim())
           .map(value => value.trim());
@@ -589,16 +566,19 @@
         setText("dnsStatus", "检测失败");
         $("dnsDot").className = "dot";
       }
+      
       try {
         await fetchGlobal();
       } catch (e) {
         setText("globalNote", "全站数据读取失败：" + e.message);
         $("globalNote").className = "notice error";
       }
+      
       setText("lastUpdated", "更新于 " + new Date().toLocaleTimeString("zh-CN", { hour12: false }));
       $("refreshBtn").disabled = false;
       refreshBusy = false;
     }
+    
     $("refreshBtn").addEventListener("click", refresh);
     refresh();
     setInterval(refresh, REFRESH_INTERVAL);
