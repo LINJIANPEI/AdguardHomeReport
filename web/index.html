@@ -265,7 +265,7 @@
     <header>
       <div>
         <h1>DNS 状态战报</h1>
-        <div class="subtitle">个人统计：最近 24 小时 · 全站统计：AdGuard Home 累计数据</div>
+        <div class="subtitle">个人统计：最近 24 小时 · 全站统计：现存日志记录</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span class="pill" id="lastUpdated">等待首次更新…</span>
@@ -328,28 +328,28 @@
     <section class="panel">
       <div class="panel-head">
         <h2>全站战报</h2>
-        <span class="pill">AdGuard Home 累计统计</span>
+        <span class="pill">现存日志统计</span>
       </div>
       <div class="grid">
         <div class="card">
           <div class="label">全站查询总数</div>
           <div class="value blue" id="gTotal">—</div>
-          <div class="hint">服务端累计数据</div>
+          <div class="hint">现存日志总记录数</div>
         </div>
         <div class="card">
           <div class="label">全站拦截数量</div>
           <div class="value red" id="gBlocked">—</div>
-          <div class="hint">服务端累计拦截数据</div>
+          <div class="hint">现存日志拦截数据</div>
         </div>
         <div class="card">
           <div class="label">全站放行数量</div>
           <div class="value green" id="gAllowList">—</div>
-          <div class="hint">服务端累计放行数据</div>
+          <div class="hint">现存日志白名单放行</div>
         </div>
         <div class="card">
           <div class="label">全站未处理数量</div>
           <div class="value yellow" id="gAllowed">—</div>
-          <div class="hint">服务端累计未处理数据</div>
+          <div class="hint">现存日志常规放行</div>
         </div>
       </div>
       <div class="notice" id="globalNote">正在读取全站统计…</div>
@@ -520,25 +520,36 @@
       setText("dnsStatus", active ? "DNS 活跃" : "最近 30 分钟无查询");
       $("dnsDot").className = "dot" + (active ? " live" : "");
     }
-    async function fetchGlobal() {
-      const json = await api("/control/stats");
-      const stats = json?.stats ?? json?.Stats ?? json;
-      const total = Number(stats?.num_dns_queries ?? stats?.numQueries ?? stats?.total_queries ?? stats?.total ?? 0);
-      const blocked = Number(stats?.num_blocked_filtering ?? stats?.blocked_filtering ?? stats?.blocked ?? 0);
 
-      // /control/stats 的 num_replaced_safebrowsing 并不是白名单放行总数，
-      // 因此全站放行量改为直接分页统计 querylog 的 whitelisted 状态。
-      // 该数量受 AdGuard Home 查询日志保留策略影响；不再把错误的 stats 字段当白名单数。
-      const whiteRows = await fetchAllStatusForIp("", "whitelisted", 0, Date.now());
-      const passed = whiteRows.length;
+    async function fetchGlobal() {
+      const now = Date.now();
+      
+      // 不再请求 /control/stats，直接全量拉取现存日志（all 状态）
+      const allRows = await fetchAllStatusForIp("", "all", 0, now);
+      
+      const total = allRows.length;
+      let blocked = 0;
+      let passed = 0;
+      
+      // 在本地遍历一遍，把拦截和白名单数量算出来
+      for (const row of allRows) {
+        if (isBlocked(row)) {
+          blocked++;
+        } else if (isWhitelisted(row)) {
+          passed++;
+        }
+      }
+      
       const unprocessed = Math.max(0, total - blocked - passed);
 
       setText("gTotal", fmt(total));
       setText("gBlocked", fmt(blocked));
       setText("gAllowList", fmt(passed));
       setText("gAllowed", fmt(unprocessed));
-      setText("globalNote", `数据来自林林的AdguardHome。`);
+      setText("globalNote", `基于现存查询日志统计（受日志保留策略限制）。`);
+      $("globalNote").className = "notice";
     }
+
     async function refresh() {
       if (refreshBusy) return;
       refreshBusy = true;
