@@ -42,12 +42,12 @@ jobs:
 
       - name: Verify artifact
         run: |
-          test -x target/aarch64-unknown-linux-musl/release/AdguardHomeReport
-          file target/aarch64-unknown-linux-musl/release/AdguardHomeReport
+          test -x target/aarch64-unknown-linux-musl/release/AghReport
+          file target/aarch64-unknown-linux-musl/release/AghReport
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: 编译产物 v1.0.${{ github.run_number }}
-          files: target/aarch64-unknown-linux-musl/release/AdguardHomeReport
+          files: target/aarch64-unknown-linux-musl/release/AghReport
