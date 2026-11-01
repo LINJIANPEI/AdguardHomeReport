@@ -354,7 +354,7 @@
       </div>
       <div class="notice" id="globalNote">正在读取全站统计…</div>
     </section>
-    <footer>每 10 秒自动刷新 · 个人日志仅统计最近 24 小时 · 全站数据来自查询日志，受日志保留期限制</footer>
+    <footer>界面每 1 秒刷新 · 数据每 1 秒增量拉取（去重） · IP 每 3 秒检测 · 个人统计最近 24 小时 · 全站窗口 168 小时</footer>
   </main>
 
   <script>
@@ -362,17 +362,26 @@
 
     const STAT_PERIOD_HOURS = 24;
     const WINDOW_MINS = 30;
-    const REFRESH_INTERVAL = 10000;
-    const PAGE_SIZE = 500;                 // AdGuard Home 单次硬上限
+    const UI_INTERVAL = 1000;             // 渲染 1 秒
+    const FETCH_INTERVAL = 1000;          // 拉取 1 秒
+    const IP_INTERVAL = 3000;             // IP 检测 3 秒
+    const PAGE_SIZE = 500;                // AdGuard Home 单次硬上限
     const MAX_PAGES_PER_STATUS = 10000;
-    const RETENTION_HOURS = 168;           // 【请按实际日志保留期修改】
+    const RETENTION_HOURS = 168;          // 7 天，与 AdGuard 查询日志保留期一致
+    const OVERLAP_MS = 2000;              // 增量重叠窗口（防同毫秒边界漏数）
 
     const $ = id => document.getElementById(id);
-    let refreshBusy = false;
     let ipDetectionErrors = [];
 
-    // 全站缓存：精简条目 { ms, client, cls }，按时间倒序（最新在前）
-    const cache = { items: [], newest: 0, loaded: false };
+    // 全站缓存：条目 { ms, client, cls, key }，按时间倒序
+    const cache = { items: [], newest: 0, loaded: false, error: null };
+
+    // 调度状态
+    let cachedIps = [];
+    let lastIpAt = 0;
+    let lastFetchAt = 0;
+    let ipBusy = false;
+    let fetchBusy = false;
 
     function retentionMs() { return RETENTION_HOURS * 3600 * 1000; }
     function fmt(value) {
@@ -394,6 +403,12 @@
     function clientName(entry) {
       return entry?.client ?? entry?.Client ?? entry?.client_ip ?? entry?.ClientIP ?? "";
     }
+    function questionName(entry) {
+      return entry?.question?.name ?? entry?.Question?.Name ?? "";
+    }
+    function questionType(entry) {
+      return entry?.question?.type ?? entry?.Question?.Type ?? "";
+    }
     function normalizeIp(raw) {
       let s = String(raw || "").trim().toLowerCase();
       if (s.startsWith("::ffff:")) s = s.slice(7);
@@ -406,12 +421,33 @@
       if (reason.startsWith("filtered")) return "blocked";
       return "processed";
     }
+    // 去重键：时间毫秒 + client + 域名 + type + reason
+    function makeKey(entry) {
+      return [
+        entryMs(entry),
+        normalizeIp(clientName(entry)),
+        String(questionName(entry)).toLowerCase(),
+        String(questionType(entry)),
+        String(entry?.reason ?? "")
+      ].join("|");
+    }
     function compact(rows) {
       return rows.map(row => ({
         ms: entryMs(row),
         client: normalizeIp(clientName(row)),
-        cls: classify(row)
+        cls: classify(row),
+        key: makeKey(row)
       }));
+    }
+    function dedupe(items) {
+      const seen = new Set();
+      const out = [];
+      for (const it of items) {
+        if (seen.has(it.key)) continue;
+        seen.add(it.key);
+        out.push(it);
+      }
+      return out;
     }
 
     async function api(path) {
@@ -419,6 +455,7 @@
       if (!response.ok) throw new Error(`${path}：HTTP ${response.status}`);
       return response.json();
     }
+    // 【按实际 Lucky 接口二选一】当前为 JSON 版 /api/local-ip/{family}
     async function detectBrowserEgress(family) {
       try {
         const data = await api(`/api/local-ip/${family}`);
@@ -432,11 +469,28 @@
         return null;
       }
     }
+    /* 若 Lucky 实际是纯文本 /api/client-ip，把上面整个函数替换成：
+    async function detectBrowserEgress(family) {
+      try {
+        const r = await fetch("/api/client-ip", { cache: "no-store", headers: { Accept: "text/plain" } });
+        if (!r.ok) throw new Error(`/api/client-ip：HTTP ${r.status}`);
+        const ip = (await r.text()).trim().replace(/^['"]|['"]$/g, "");
+        if (!ip) throw new Error("Lucky 没有返回客户端 IP");
+        const isV4 = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip);
+        const isV6 = ip.includes(":");
+        if ((family === 4 && !isV4) || (family === 6 && !isV6)) return null;
+        return ip;
+      } catch (error) {
+        ipDetectionErrors.push(`IPv${family}：${error?.message || String(error)}`);
+        return null;
+      }
+    }
+    */
     function displayIp(id, value) {
       setText(id, value || "不可用");
     }
 
-    // 单路 all 拉取，游标翻页
+    // 单路 all 拉取
     async function fetchQuerylogPage(olderThan) {
       const params = new URLSearchParams({ limit: String(PAGE_SIZE), response_status: "all" });
       if (olderThan) params.set("older_than", olderThan);
@@ -479,8 +533,9 @@
       return rows;
     }
 
-    // 增量：从最新往回拉，遇到 <= newest 就停
+    // 增量：往回多看 OVERLAP_MS 毫秒
     async function fetchIncremental(newest) {
+      const cutoff = newest - OVERLAP_MS;
       const rows = [];
       const seen = new Set();
       let cursor = null;
@@ -490,7 +545,7 @@
         if (!data.length) break;
         let hit = false;
         for (const row of data) {
-          if (entryMs(row) <= newest) { hit = true; break; }
+          if (entryMs(row) < cutoff) { hit = true; break; }
           rows.push(row);
         }
         if (hit) break;
@@ -508,37 +563,53 @@
       try {
         if (!cache.loaded) {
           const rows = await fetchFull();
-          cache.items = compact(rows);
+          cache.items = dedupe(compact(rows));
           cache.newest = cache.items.length ? cache.items[0].ms : now;
           cache.loaded = true;
         } else {
           const rows = await fetchIncremental(cache.newest);
           if (rows.length) {
-            const newItems = compact(rows);
-            cache.items = newItems.concat(cache.items);
-            if (newItems[0].ms > cache.newest) cache.newest = newItems[0].ms;
+            // 去重：和缓存已有 key 比对
+            const existing = new Set();
+            for (const it of cache.items) existing.add(it.key);
+
+            const newItems = [];
+            let maxNew = cache.newest;
+            for (const it of compact(rows)) {
+              if (existing.has(it.key)) continue;   // 缓存已有，跳过
+              existing.add(it.key);                 // 同批内部防重
+              newItems.push(it);
+              if (it.ms > maxNew) maxNew = it.ms;
+            }
+            if (newItems.length) {
+              cache.items = newItems.concat(cache.items);
+              cache.newest = maxNew;
+            }
           }
         }
-        // 剔除超过保留期的尾部条目（倒序，从尾部扫）
+
+        // 剔除超出保留期的尾部条目
         const cutoff = now - retentionMs();
         let end = cache.items.length;
         while (end > 0 && cache.items[end - 1].ms < cutoff) end--;
         if (end < cache.items.length) cache.items = cache.items.slice(0, end);
 
+        cache.error = null;
         return { ok: true };
       } catch (e) {
+        cache.error = e.message;
         return { ok: false, error: e.message };
       }
     }
 
-    // 统一计数：ipSet=null 即全站；否则按 client 过滤
+    // 统一计数：ipSet=null 全站；否则按 client 过滤
     function countItems(ipSet, startMs, endMs) {
       const items = cache.items;
       let total = 0, blocked = 0, processed = 0, white = 0, latest = 0, active = false;
       const activeSince = endMs - WINDOW_MINS * 60 * 1000;
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
-        if (it.ms < startMs) break;    // 倒序：后面的都更旧
+        if (it.ms < startMs) break;    // 倒序，后面都更旧
         if (it.ms > endMs) continue;
         if (ipSet && !ipSet.has(it.client)) continue;
         total++;
@@ -551,7 +622,6 @@
       return { total, blocked, processed, white, latest, active };
     }
 
-    // 全站：从缓存统计（缓存已裁剪到保留期）
     function renderGlobal() {
       const now = Date.now();
       const c = countItems(null, 0, now);
@@ -563,7 +633,6 @@
       $("globalNote").className = "notice";
     }
 
-    // 个人：从同一份缓存按 client 过滤后统计
     function renderPersonal(ips) {
       const now = Date.now();
       const start = now - STAT_PERIOD_HOURS * 3600 * 1000;
@@ -583,69 +652,104 @@
       $("dnsDot").className = "dot" + (c.active ? " live" : "");
     }
 
-    async function refresh() {
-      if (refreshBusy) return;
-      refreshBusy = true;
-      $("refreshBtn").disabled = true;
+    function renderAll() {
+      if (!cache.loaded) {
+        setText("globalNote", cache.error ? "全站数据读取失败：" + cache.error : "正在加载全量日志…");
+        $("globalNote").className = "notice" + (cache.error ? " error" : "");
+        setText("personalNote", "等待全站数据加载完成…");
+        $("personalNote").className = "notice";
+        setText("lastUpdated", "更新于 " + new Date().toLocaleTimeString("zh-CN", { hour12: false }));
+        return;
+      }
 
-      try {
-        ipDetectionErrors = [];
-        const [ipv4, ipv6] = await Promise.all([
-          detectBrowserEgress(4),
-          detectBrowserEgress(6)
-        ]);
-        displayIp("publicIpv4", ipv4);
-        displayIp("publicIpv6", ipv6);
+      renderGlobal();
 
-        const ips = [ipv4, ipv6]
-          .filter(value => typeof value === "string" && value.trim())
-          .map(value => value.trim());
-
-        // 1. 拉取全站数据（单路 all，增量）
-        const result = await updateCache();
-
-        if (!cache.loaded) {
-          setText("globalNote", result.ok ? "正在加载全量日志…" : "全站数据读取失败：" + result.error);
-          $("globalNote").className = "notice" + (result.ok ? "" : " error");
-          setText("personalNote", "等待全站数据加载完成…");
-          $("personalNote").className = "notice";
-          setText("dnsStatus", "加载中");
-          $("dnsDot").className = "dot";
-        } else {
-          // 2. 从全站数据统计全站
-          renderGlobal();
-
-          // 3. 从全站数据分离个人，统计个人
-          if (ips.length) {
-            const routeIps = [ipv4 ? `IPv4 ${ipv4}` : "IPv4 不可用", ipv6 ? `IPv6 ${ipv6}` : "IPv6 不可用"];
-            const errorHint = ipDetectionErrors.length ? `；检测失败详情：${ipDetectionErrors.join("；")}` : "";
-            setText("clientNote", `当前地址：${routeIps.join("；")}。${errorHint}`);
-            renderPersonal(ips);
-          } else {
-            ["pTotal", "pBlocked", "pAllowList", "pAllowed"].forEach(id => setText(id, "—"));
-            setText("pLatest", "—");
-            setText("pActive", "—");
-            setText("personalNote", "没有取得可用于匹配的地址，暂时无法查询个人日志。" + (ipDetectionErrors.length ? "检测详情：" + ipDetectionErrors.join("；") : "请检查服务端、网络或代理设置。"));
-            $("personalNote").className = "notice error";
-            setText("dnsStatus", "地址检测失败");
-            $("dnsDot").className = "dot";
-          }
-        }
-      } catch (e) {
-        setText("personalNote", "个人数据读取失败：" + e.message);
+      if (cachedIps.length) {
+        renderPersonal(cachedIps);
+      } else {
+        ["pTotal", "pBlocked", "pAllowList", "pAllowed"].forEach(id => setText(id, "—"));
+        setText("pLatest", "—");
+        setText("pActive", "—");
+        setText("personalNote", "没有取得可用于匹配的地址，暂时无法查询个人日志。" + (ipDetectionErrors.length ? "检测详情：" + ipDetectionErrors.join("；") : "请检查服务端、网络或代理设置。"));
         $("personalNote").className = "notice error";
-        setText("dnsStatus", "检测失败");
+        setText("dnsStatus", "地址检测失败");
         $("dnsDot").className = "dot";
       }
 
       setText("lastUpdated", "更新于 " + new Date().toLocaleTimeString("zh-CN", { hour12: false }));
-      $("refreshBtn").disabled = false;
-      refreshBusy = false;
     }
 
-    $("refreshBtn").addEventListener("click", refresh);
-    refresh();
-    setInterval(refresh, REFRESH_INTERVAL);
+    async function detectIps() {
+      ipDetectionErrors = [];
+      const [ipv4, ipv6] = await Promise.all([
+        detectBrowserEgress(4),
+        detectBrowserEgress(6)
+      ]);
+      displayIp("publicIpv4", ipv4);
+      displayIp("publicIpv6", ipv6);
+      cachedIps = [ipv4, ipv6]
+        .filter(v => typeof v === "string" && v.trim())
+        .map(v => v.trim());
+
+      const routeIps = [ipv4 ? `IPv4 ${ipv4}` : "IPv4 不可用", ipv6 ? `IPv6 ${ipv6}` : "IPv6 不可用"];
+      const errorHint = ipDetectionErrors.length ? `；检测失败详情：${ipDetectionErrors.join("；")}` : "";
+      setText("clientNote", `当前地址：${routeIps.join("；")}。${errorHint}`);
+      lastIpAt = Date.now();
+    }
+
+    // ====== 独立循环 1：渲染（1 秒） ======
+    function renderLoop() {
+      renderAll();
+      setTimeout(renderLoop, UI_INTERVAL);
+    }
+
+    // ====== 独立循环 2：拉取（1 秒，增量去重） ======
+    async function fetchLoop() {
+      if (!fetchBusy) {
+        fetchBusy = true;
+        try {
+          await updateCache();
+        } catch (e) {
+          cache.error = e.message;
+        } finally {
+          fetchBusy = false;
+          lastFetchAt = Date.now();
+        }
+      }
+      setTimeout(fetchLoop, FETCH_INTERVAL);
+    }
+
+    // ====== 独立循环 3：IP 检测（3 秒） ======
+    async function ipLoop() {
+      if (!ipBusy) {
+        ipBusy = true;
+        try {
+          await detectIps();
+        } catch (e) {
+          ipDetectionErrors.push(e.message);
+        } finally {
+          ipBusy = false;
+        }
+      }
+      setTimeout(ipLoop, IP_INTERVAL);
+    }
+
+    $("refreshBtn").addEventListener("click", async () => {
+      $("refreshBtn").disabled = true;
+      try {
+        await Promise.all([detectIps(), updateCache()]);
+        lastIpAt = Date.now();
+        lastFetchAt = Date.now();
+        renderAll();
+      } finally {
+        $("refreshBtn").disabled = false;
+      }
+    });
+
+    // 首次启动
+    renderLoop();
+    fetchLoop();
+    ipLoop();
   </script>
 </body>
 
