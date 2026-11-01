@@ -354,7 +354,7 @@
       </div>
       <div class="notice" id="globalNote">正在读取全站统计…</div>
     </section>
-    <footer>每 5 秒自动刷新 · 个人日志仅统计最近 24 小时 · 全站数据来自查询日志，受日志保留期限制</footer>
+    <footer>每 10 秒自动刷新 · 个人日志仅统计最近 24 小时 · 全站数据来自查询日志，受日志保留期限制</footer>
   </main>
 
   <script>
@@ -362,7 +362,7 @@
 
     const STAT_PERIOD_HOURS = 24;
     const WINDOW_MINS = 30;
-    const REFRESH_INTERVAL = 5000; // 5 秒刷新
+    const REFRESH_INTERVAL = 10000; // 10 秒刷新
     const PAGE_SIZE = 1000;
     const MAX_PAGES_PER_STATUS = 10000;
     const $ = id => document.getElementById(id);
@@ -398,24 +398,6 @@
     }
     function clientMatches(entry, ip) {
       return normalizeIp(clientName(entry)) === normalizeIp(ip);
-    }
-    function entryKey(entry) {
-      const d = parseDate(entry);
-      return [
-        d ? d.getTime() : (entry.time || entry.timestamp || ""),
-        questionName(entry).toLowerCase(),
-        clientName(entry),
-        entry?.question?.type ?? entry?.Question?.Type ?? ""
-      ].join("|");
-    }
-    function isBlocked(entry) {
-      const result = entry?.result ?? entry?.Result ?? {};
-      return Boolean(result?.isFiltered ?? result?.IsFiltered ?? entry?.is_filtered ?? entry?.IsFiltered);
-    }
-    function isWhitelisted(entry) {
-      const result = entry?.result ?? entry?.Result ?? {};
-      const reason = String(result?.reason ?? result?.Reason ?? entry?.reason ?? entry?.Reason ?? "").toLowerCase();
-      return reason.includes("whitelist") || reason.includes("white_list") || reason.includes("白名单");
     }
     function inWindow(entry, startMs, endMs) {
       const d = parseDate(entry);
@@ -480,7 +462,7 @@
         if (!rows.length) break;
 
         for (const row of rows) {
-          // 【核心修复1】拉取后严格验证 client 字段，彻底杜绝模糊命中 (如搜 1.1 命中 1.10)
+          // 拉取后严格验证 client 字段，彻底杜绝模糊命中 (如搜 1.1 命中 1.10)
           if (ip && !clientMatches(row, ip)) continue;
           if (inWindow(row, startMs, endMs)) found.push(row);
         }
@@ -503,6 +485,7 @@
       const end = now;
       const allRows = [];
       const blockedRows = [];
+      const processedRows = [];
       const whiteRows = [];
       const errors = [];
 
@@ -510,37 +493,26 @@
         const jobs = [
           fetchAllStatusForIp(ip, "all", start, end).then(v => allRows.push(...v)).catch(e => errors.push(`${ip} 全部记录：${e.message}`)),
           fetchAllStatusForIp(ip, "blocked", start, end).then(v => blockedRows.push(...v)).catch(e => errors.push(`${ip} 拦截记录：${e.message}`)),
+          fetchAllStatusForIp(ip, "processed", start, end).then(v => processedRows.push(...v)).catch(e => errors.push(`${ip} 未处理记录：${e.message}`)),
           fetchAllStatusForIp(ip, "whitelisted", start, end).then(v => whiteRows.push(...v)).catch(e => errors.push(`${ip} 白名单记录：${e.message}`))
         ];
         await Promise.all(jobs);
       }
 
-      // 【核心修复2】用 entryKey 哈希去重，彻底解决 IPv4/IPv6 结果重叠导致的数据翻倍
-      const uniqueMap = new Map();
-      allRows.forEach(row => uniqueMap.set(entryKey(row), row));
-      const all = Array.from(uniqueMap.values());
+      // 四路状态独立计数，直接使用原始行数；不去重，避免同毫秒并发查询被误合并
+      const latest = allRows.map(parseDate).filter(Boolean).sort((a, b) => b - a)[0];
+      const active = allRows.some(row => inWindow(row, now - WINDOW_MINS * 60 * 1000, now));
 
-      const uniqueBlockedMap = new Map();
-      blockedRows.forEach(row => uniqueBlockedMap.set(entryKey(row), row));
-      const blocked = Array.from(uniqueBlockedMap.values());
-
-      const uniqueWhiteMap = new Map();
-      whiteRows.forEach(row => uniqueWhiteMap.set(entryKey(row), row));
-      const white = Array.from(uniqueWhiteMap.values());
-
-      const latest = all.map(parseDate).filter(Boolean).sort((a, b) => b - a)[0];
-      const active = all.some(row => inWindow(row, now - WINDOW_MINS * 60 * 1000, now));
-
-      setText("pTotal", fmt(all.length));
-      setText("pBlocked", fmt(blocked.length));
-      setText("pAllowList", fmt(white.length));
-      setText("pAllowed", fmt(Math.max(0, all.length - blocked.length - white.length)));
+      setText("pTotal", fmt(allRows.length));
+      setText("pBlocked", fmt(blockedRows.length));
+      setText("pAllowList", fmt(whiteRows.length));
+      setText("pAllowed", fmt(processedRows.length));
       setText("pLatest", latest ? timeText(latest.toISOString()) : "暂无记录");
       setText("pActive", active ? "是" : "否");
       $("pActive").className = active ? "green" : "muted";
       setText("personalNote", errors.length
         ? `部分查询失败：${errors.slice(0, 3).join("；")}${errors.length > 3 ? "…" : ""}`
-        : `已读取 ${ips.length} 个客户端地址，严格精确匹配并去重。统计区间 ${timeText(new Date(start).toISOString())} 至 ${timeText(new Date(end).toISOString())}。`);
+        : `已读取 ${ips.length} 个客户端地址，严格精确匹配；各项按 response_status 独立统计。统计区间 ${timeText(new Date(start).toISOString())} 至 ${timeText(new Date(end).toISOString())}。`);
       $("personalNote").className = "notice" + (errors.length ? " error" : "");
       setText("dnsStatus", active ? "DNS 活跃" : "最近 30 分钟无查询");
       $("dnsDot").className = "dot" + (active ? " live" : "");
@@ -549,22 +521,17 @@
     async function fetchGlobal() {
       const now = Date.now();
 
-      // 【核心修复3】全站不使用 stats，改为分别拉取 all, blocked, whitelisted
+      // 全站不使用 stats，改为分别拉取 all / blocked / processed / whitelisted
       const allRows = await fetchAllStatusForIp("", "all", 0, now);
       const blockedRows = await fetchAllStatusForIp("", "blocked", 0, now);
+      const processedRows = await fetchAllStatusForIp("", "processed", 0, now);
       const whiteRows = await fetchAllStatusForIp("", "whitelisted", 0, now);
 
-      // 全站也做一下去重防止游标重试导致的部分重叠
-      const total = new Set(allRows.map(entryKey)).size;
-      const blocked = new Set(blockedRows.map(entryKey)).size;
-      const passed = new Set(whiteRows.map(entryKey)).size;
-      const unprocessed = Math.max(0, total - blocked - passed);
-
-      setText("gTotal", fmt(total));
-      setText("gBlocked", fmt(blocked));
-      setText("gAllowList", fmt(passed));
-      setText("gAllowed", fmt(unprocessed));
-      setText("globalNote", `基于现存查询日志统计（受日志保留策略限制）。`);
+      setText("gTotal", fmt(allRows.length));
+      setText("gBlocked", fmt(blockedRows.length));
+      setText("gAllowList", fmt(whiteRows.length));
+      setText("gAllowed", fmt(processedRows.length));
+      setText("globalNote", `基于现存查询日志统计（受日志保留策略限制）。各项按 response_status 独立统计，合计可能与总数略有差异。`);
       $("globalNote").className = "notice";
     }
 
