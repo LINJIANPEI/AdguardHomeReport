@@ -362,13 +362,19 @@
 
     const STAT_PERIOD_HOURS = 24;
     const WINDOW_MINS = 30;
-    const REFRESH_INTERVAL = 10000; // 10 秒刷新
-    const PAGE_SIZE = 1000;
+    const REFRESH_INTERVAL = 10000;
+    const PAGE_SIZE = 500;                 // AdGuard Home 单次硬上限
     const MAX_PAGES_PER_STATUS = 10000;
+    const RETENTION_HOURS = 168;           // 【请按实际日志保留期修改】
+
     const $ = id => document.getElementById(id);
     let refreshBusy = false;
     let ipDetectionErrors = [];
 
+    // 全站缓存：精简条目 { ms, client, cls }，按时间倒序（最新在前）
+    const cache = { items: [], newest: 0, loaded: false };
+
+    function retentionMs() { return RETENTION_HOURS * 3600 * 1000; }
     function fmt(value) {
       const n = Number(value);
       return Number.isFinite(n) ? n.toLocaleString("zh-CN") : "—";
@@ -379,14 +385,11 @@
       const d = new Date(value);
       return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString("zh-CN", { hour12: false });
     }
-    function parseDate(entry) {
-      const raw = entry?.time ?? entry?.Time ?? entry?.timestamp ?? entry?.Timestamp;
-      if (!raw) return null;
-      const d = new Date(raw);
-      return Number.isNaN(d.getTime()) ? null : d;
-    }
-    function questionName(entry) {
-      return entry?.question?.name ?? entry?.Question?.Name ?? entry?.question?.Name ?? "";
+    function entryMs(entry) {
+      const raw = entry?.time;
+      if (!raw) return 0;
+      const t = new Date(raw).getTime();
+      return Number.isNaN(t) ? 0 : t;
     }
     function clientName(entry) {
       return entry?.client ?? entry?.Client ?? entry?.client_ip ?? entry?.ClientIP ?? "";
@@ -396,13 +399,21 @@
       if (s.startsWith("::ffff:")) s = s.slice(7);
       return s;
     }
-    function clientMatches(entry, ip) {
-      return normalizeIp(clientName(entry)) === normalizeIp(ip);
+    // reason 分类：含 whitelist → 放行；以 filtered 开头 → 拦截；其余 → 未处理
+    function classify(entry) {
+      const reason = String(entry?.reason ?? "").toLowerCase();
+      if (reason.includes("whitelist") || reason.includes("white_list")) return "whitelisted";
+      if (reason.startsWith("filtered")) return "blocked";
+      return "processed";
     }
-    function inWindow(entry, startMs, endMs) {
-      const d = parseDate(entry);
-      return d && d.getTime() >= startMs && d.getTime() <= endMs;
+    function compact(rows) {
+      return rows.map(row => ({
+        ms: entryMs(row),
+        client: normalizeIp(clientName(row)),
+        cls: classify(row)
+      }));
     }
+
     async function api(path) {
       const response = await fetch(path, { cache: "no-store", headers: { "Accept": "application/json" } });
       if (!response.ok) throw new Error(`${path}：HTTP ${response.status}`);
@@ -425,12 +436,9 @@
       setText(id, value || "不可用");
     }
 
-    async function fetchQuerylogPage(search, status, olderThan) {
-      const params = new URLSearchParams({ limit: String(PAGE_SIZE), response_status: status });
-      if (search) {
-        // 加上双引号，采用短语搜索
-        params.set("search", `"${String(search).trim()}"`);
-      }
+    // 单路 all 拉取，游标翻页
+    async function fetchQuerylogPage(olderThan) {
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE), response_status: "all" });
       if (olderThan) params.set("older_than", olderThan);
       return api("/control/querylog?" + params.toString());
     }
@@ -444,101 +452,142 @@
     function getOldestCursor(json, entries) {
       const cursor = json?.oldest ?? json?.Oldest ?? json?.oldest_timestamp;
       if (cursor) return String(cursor);
-      let oldest = null;
+      let oldest = 0;
       for (const entry of entries) {
-        const d = parseDate(entry);
-        if (d && (!oldest || d < oldest)) oldest = d;
+        const t = entryMs(entry);
+        if (t && (!oldest || t < oldest)) oldest = t;
       }
-      return oldest ? oldest.toISOString() : null;
+      return oldest ? new Date(oldest).toISOString() : null;
     }
 
-    async function fetchAllStatusForIp(ip, status, startMs, endMs) {
-      const found = [];
-      const seenCursors = new Set();
+    // 首次全量：翻完所有页
+    async function fetchFull() {
+      const rows = [];
+      const seen = new Set();
       let cursor = null;
       for (let page = 0; page < MAX_PAGES_PER_STATUS; page++) {
-        const json = await fetchQuerylogPage(ip, status, cursor);
-        const rows = extractData(json);
-        if (!rows.length) break;
-
-        for (const row of rows) {
-          // 拉取后严格验证 client 字段，彻底杜绝模糊命中 (如搜 1.1 命中 1.10)
-          if (ip && !clientMatches(row, ip)) continue;
-          if (inWindow(row, startMs, endMs)) found.push(row);
-        }
-
-        const next = getOldestCursor(json, rows);
-        if (!next || next === cursor || seenCursors.has(next)) break;
-        seenCursors.add(next);
+        const json = await fetchQuerylogPage(cursor);
+        const data = extractData(json);
+        if (!data.length) break;
+        rows.push(...data);
+        const next = getOldestCursor(json, data);
+        if (!next || next === cursor || seen.has(next)) break;
+        seen.add(next);
         cursor = next;
-
-        const oldestDate = rows.map(parseDate).filter(Boolean).sort((a, b) => a - b)[0];
-        if (oldestDate && oldestDate.getTime() < startMs) break;
-        if (rows.length < PAGE_SIZE) break;
+        if (data.length < PAGE_SIZE) break;
       }
-      return found;
+      return rows;
     }
 
-    async function fetchPersonal(ips) {
-      const now = Date.now();
-      const start = now - STAT_PERIOD_HOURS * 60 * 60 * 1000;
-      const end = now;
-      const allRows = [];
-      const blockedRows = [];
-      const processedRows = [];
-      const whiteRows = [];
-      const errors = [];
-
-      for (const ip of ips) {
-        const jobs = [
-          fetchAllStatusForIp(ip, "all", start, end).then(v => allRows.push(...v)).catch(e => errors.push(`${ip} 全部记录：${e.message}`)),
-          fetchAllStatusForIp(ip, "blocked", start, end).then(v => blockedRows.push(...v)).catch(e => errors.push(`${ip} 拦截记录：${e.message}`)),
-          fetchAllStatusForIp(ip, "processed", start, end).then(v => processedRows.push(...v)).catch(e => errors.push(`${ip} 未处理记录：${e.message}`)),
-          fetchAllStatusForIp(ip, "whitelisted", start, end).then(v => whiteRows.push(...v)).catch(e => errors.push(`${ip} 白名单记录：${e.message}`))
-        ];
-        await Promise.all(jobs);
+    // 增量：从最新往回拉，遇到 <= newest 就停
+    async function fetchIncremental(newest) {
+      const rows = [];
+      const seen = new Set();
+      let cursor = null;
+      for (let page = 0; page < MAX_PAGES_PER_STATUS; page++) {
+        const json = await fetchQuerylogPage(cursor);
+        const data = extractData(json);
+        if (!data.length) break;
+        let hit = false;
+        for (const row of data) {
+          if (entryMs(row) <= newest) { hit = true; break; }
+          rows.push(row);
+        }
+        if (hit) break;
+        const next = getOldestCursor(json, data);
+        if (!next || next === cursor || seen.has(next)) break;
+        seen.add(next);
+        cursor = next;
+        if (data.length < PAGE_SIZE) break;
       }
-
-      // 四路状态独立计数，直接使用原始行数；不去重，避免同毫秒并发查询被误合并
-      const latest = allRows.map(parseDate).filter(Boolean).sort((a, b) => b - a)[0];
-      const active = allRows.some(row => inWindow(row, now - WINDOW_MINS * 60 * 1000, now));
-
-      setText("pTotal", fmt(allRows.length));
-      setText("pBlocked", fmt(blockedRows.length));
-      setText("pAllowList", fmt(whiteRows.length));
-      setText("pAllowed", fmt(processedRows.length));
-      setText("pLatest", latest ? timeText(latest.toISOString()) : "暂无记录");
-      setText("pActive", active ? "是" : "否");
-      $("pActive").className = active ? "green" : "muted";
-      setText("personalNote", errors.length
-        ? `部分查询失败：${errors.slice(0, 3).join("；")}${errors.length > 3 ? "…" : ""}`
-        : `已读取 ${ips.length} 个客户端地址，严格精确匹配；各项按 response_status 独立统计。统计区间 ${timeText(new Date(start).toISOString())} 至 ${timeText(new Date(end).toISOString())}。`);
-      $("personalNote").className = "notice" + (errors.length ? " error" : "");
-      setText("dnsStatus", active ? "DNS 活跃" : "最近 30 分钟无查询");
-      $("dnsDot").className = "dot" + (active ? " live" : "");
+      return rows;
     }
 
-    async function fetchGlobal() {
+    async function updateCache() {
       const now = Date.now();
+      try {
+        if (!cache.loaded) {
+          const rows = await fetchFull();
+          cache.items = compact(rows);
+          cache.newest = cache.items.length ? cache.items[0].ms : now;
+          cache.loaded = true;
+        } else {
+          const rows = await fetchIncremental(cache.newest);
+          if (rows.length) {
+            const newItems = compact(rows);
+            cache.items = newItems.concat(cache.items);
+            if (newItems[0].ms > cache.newest) cache.newest = newItems[0].ms;
+          }
+        }
+        // 剔除超过保留期的尾部条目（倒序，从尾部扫）
+        const cutoff = now - retentionMs();
+        let end = cache.items.length;
+        while (end > 0 && cache.items[end - 1].ms < cutoff) end--;
+        if (end < cache.items.length) cache.items = cache.items.slice(0, end);
 
-      // 全站不使用 stats，改为分别拉取 all / blocked / processed / whitelisted
-      const allRows = await fetchAllStatusForIp("", "all", 0, now);
-      const blockedRows = await fetchAllStatusForIp("", "blocked", 0, now);
-      const processedRows = await fetchAllStatusForIp("", "processed", 0, now);
-      const whiteRows = await fetchAllStatusForIp("", "whitelisted", 0, now);
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+    }
 
-      setText("gTotal", fmt(allRows.length));
-      setText("gBlocked", fmt(blockedRows.length));
-      setText("gAllowList", fmt(whiteRows.length));
-      setText("gAllowed", fmt(processedRows.length));
-      setText("globalNote", `基于现存查询日志统计（受日志保留策略限制）。各项按 response_status 独立统计，合计可能与总数略有差异。`);
+    // 统一计数：ipSet=null 即全站；否则按 client 过滤
+    function countItems(ipSet, startMs, endMs) {
+      const items = cache.items;
+      let total = 0, blocked = 0, processed = 0, white = 0, latest = 0, active = false;
+      const activeSince = endMs - WINDOW_MINS * 60 * 1000;
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.ms < startMs) break;    // 倒序：后面的都更旧
+        if (it.ms > endMs) continue;
+        if (ipSet && !ipSet.has(it.client)) continue;
+        total++;
+        if (it.cls === "blocked") blocked++;
+        else if (it.cls === "whitelisted") white++;
+        else processed++;
+        if (it.ms > latest) latest = it.ms;
+        if (it.ms >= activeSince) active = true;
+      }
+      return { total, blocked, processed, white, latest, active };
+    }
+
+    // 全站：从缓存统计（缓存已裁剪到保留期）
+    function renderGlobal() {
+      const now = Date.now();
+      const c = countItems(null, 0, now);
+      setText("gTotal", fmt(c.total));
+      setText("gBlocked", fmt(c.blocked));
+      setText("gAllowList", fmt(c.white));
+      setText("gAllowed", fmt(c.processed));
+      setText("globalNote", `单路 all 拉取，本地按 reason 分类；缓存窗口 ${RETENTION_HOURS} 小时，仅覆盖日志保留期内记录。`);
       $("globalNote").className = "notice";
+    }
+
+    // 个人：从同一份缓存按 client 过滤后统计
+    function renderPersonal(ips) {
+      const now = Date.now();
+      const start = now - STAT_PERIOD_HOURS * 3600 * 1000;
+      const ipSet = new Set(ips.map(normalizeIp));
+      const c = countItems(ipSet, start, now);
+
+      setText("pTotal", fmt(c.total));
+      setText("pBlocked", fmt(c.blocked));
+      setText("pAllowList", fmt(c.white));
+      setText("pAllowed", fmt(c.processed));
+      setText("pLatest", c.latest ? timeText(new Date(c.latest).toISOString()) : "暂无记录");
+      setText("pActive", c.active ? "是" : "否");
+      $("pActive").className = c.active ? "green" : "muted";
+      setText("personalNote", `已读取 ${ips.length} 个客户端地址；从全站缓存按 client 精确过滤，按 reason 分类。统计区间 ${timeText(new Date(start).toISOString())} 至 ${timeText(new Date(now).toISOString())}。`);
+      $("personalNote").className = "notice";
+      setText("dnsStatus", c.active ? "DNS 活跃" : "最近 30 分钟无查询");
+      $("dnsDot").className = "dot" + (c.active ? " live" : "");
     }
 
     async function refresh() {
       if (refreshBusy) return;
       refreshBusy = true;
       $("refreshBtn").disabled = true;
+
       try {
         ipDetectionErrors = [];
         const [ipv4, ipv6] = await Promise.all([
@@ -552,32 +601,41 @@
           .filter(value => typeof value === "string" && value.trim())
           .map(value => value.trim());
 
-        if (!ips.length) {
-          ["pTotal", "pBlocked", "pAllowList", "pAllowed"].forEach(id => setText(id, "—"));
-          setText("pLatest", "—");
-          setText("pActive", "—");
-          setText("personalNote", "没有取得可用于匹配的地址，暂时无法查询个人日志。" + (ipDetectionErrors.length ? "检测详情：" + ipDetectionErrors.join("；") : "请检查服务端、网络或代理设置。"));
-          $("personalNote").className = "notice error";
-          setText("dnsStatus", "地址检测失败");
+        // 1. 拉取全站数据（单路 all，增量）
+        const result = await updateCache();
+
+        if (!cache.loaded) {
+          setText("globalNote", result.ok ? "正在加载全量日志…" : "全站数据读取失败：" + result.error);
+          $("globalNote").className = "notice" + (result.ok ? "" : " error");
+          setText("personalNote", "等待全站数据加载完成…");
+          $("personalNote").className = "notice";
+          setText("dnsStatus", "加载中");
           $("dnsDot").className = "dot";
         } else {
-          const routeIps = [ipv4 ? `IPv4 ${ipv4}` : "IPv4 不可用", ipv6 ? `IPv6 ${ipv6}` : "IPv6 不可用"];
-          const errorHint = ipDetectionErrors.length ? `；检测失败详情：${ipDetectionErrors.join("；")}` : "";
-          setText("clientNote", `当前地址：${routeIps.join("；")}。${errorHint}`);
-          await fetchPersonal(ips);
+          // 2. 从全站数据统计全站
+          renderGlobal();
+
+          // 3. 从全站数据分离个人，统计个人
+          if (ips.length) {
+            const routeIps = [ipv4 ? `IPv4 ${ipv4}` : "IPv4 不可用", ipv6 ? `IPv6 ${ipv6}` : "IPv6 不可用"];
+            const errorHint = ipDetectionErrors.length ? `；检测失败详情：${ipDetectionErrors.join("；")}` : "";
+            setText("clientNote", `当前地址：${routeIps.join("；")}。${errorHint}`);
+            renderPersonal(ips);
+          } else {
+            ["pTotal", "pBlocked", "pAllowList", "pAllowed"].forEach(id => setText(id, "—"));
+            setText("pLatest", "—");
+            setText("pActive", "—");
+            setText("personalNote", "没有取得可用于匹配的地址，暂时无法查询个人日志。" + (ipDetectionErrors.length ? "检测详情：" + ipDetectionErrors.join("；") : "请检查服务端、网络或代理设置。"));
+            $("personalNote").className = "notice error";
+            setText("dnsStatus", "地址检测失败");
+            $("dnsDot").className = "dot";
+          }
         }
       } catch (e) {
         setText("personalNote", "个人数据读取失败：" + e.message);
         $("personalNote").className = "notice error";
         setText("dnsStatus", "检测失败");
         $("dnsDot").className = "dot";
-      }
-
-      try {
-        await fetchGlobal();
-      } catch (e) {
-        setText("globalNote", "全站数据读取失败：" + e.message);
-        $("globalNote").className = "notice error";
       }
 
       setText("lastUpdated", "更新于 " + new Date().toLocaleTimeString("zh-CN", { hour12: false }));
